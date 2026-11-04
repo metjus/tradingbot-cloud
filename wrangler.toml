@@ -1,0 +1,12 @@
+name = "tradingbot-cloud-paper"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tradingbot-paper-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_UUID"
