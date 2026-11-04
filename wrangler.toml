@@ -9,4 +9,4 @@ crons = ["* * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "tradingbot-paper-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_UUID"
+database_id = "bce9049e-dfae-4f83-961a-e6d1a07f2d8b"
