@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {fresh,step,act,view,equity,assertSafe} from '../src/engine.js';
+import {fresh,step,act,view,equity,assertSafe,checkEntry} from '../src/engine.js';
 test('capital bound and position count over 2000 synthetic ticks',()=>{
  const s=fresh(500);assert.equal(act(s,'start').ok,true);
  for(let i=0;i<2000;i++){step(s);assertSafe(s);assert.ok(s.cash>=0);assert.ok(Object.keys(s.positions).length<=2);
@@ -46,4 +46,34 @@ test('existing paper account migrates to v0.2.1 rules without reset',()=>{
  assert.equal(s.positions['SIM-ALPHA'].stop,99.2);
  assert.equal(s.positions['SIM-ALPHA'].target,100.6);
  assert.equal(s.limits.max_hold_minutes,15);
+});
+
+test('risk manager rejects duplicate symbol and capped positions',()=>{
+ const s=fresh();act(s,'start');
+ s.positions['SIM-ALPHA']={entry:100,qty:1,stop:99.2,target:100.6,opened_tick:1};
+ s.cash=400;
+ assert.equal(checkEntry(s,'SIM-ALPHA').reason,'DUPLICATE_POSITION');
+ s.positions['SIM-BETA']={entry:55,qty:1,stop:54.56,target:55.33,opened_tick:1};
+ s.cash=345;
+ assert.equal(checkEntry(s,'SIM-GAMMA').reason,'POSITION_LIMIT');
+ act(s,'pause');assert.equal(checkEntry(s,'SIM-GAMMA').reason,'BOT_NOT_RUNNING');
+});
+test('risk manager enforces total initial allocation and daily drawdown',()=>{
+ const s=fresh();act(s,'start');
+ s.positions['SIM-ALPHA']={entry:100,qty:4.99,stop:99.2,target:100.6,opened_tick:1};
+ s.cash=1;
+ assert.equal(checkEntry(s,'SIM-BETA').reason,'CAPITAL_LIMIT');
+ s.positions={};s.cash=490;s.day_equity=500;
+ assert.equal(checkEntry(s,'SIM-ALPHA').reason,'DAILY_LOSS_LIMIT');
+});
+test('risk manager refuses corrupted capital state',()=>{
+ const s=fresh();s.positions['SIM-ALPHA']={entry:100,qty:6,stop:99.2,target:100.6,opened_tick:1};
+ s.cash=0;assert.throws(()=>assertSafe(s),/Committed capital/);
+});
+test('risk manager reports countdown and cash allocation to dashboard',()=>{
+ const s=fresh();s.positions['SIM-ALPHA']={entry:100,qty:1,stop:99.2,target:100.6,opened_tick:1,opened_at:new Date(Date.now()-60000).toISOString()};
+ s.cash=400;const v=view(s);
+ assert.equal(v.committed,100);
+ assert.ok(v.positions[0].remaining_seconds<=14*60+2);
+ assert.ok(v.positions[0].remaining_seconds>0);
 });
