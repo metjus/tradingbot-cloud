@@ -1,23 +1,74 @@
-export const HTML = `<!doctype html><html lang="sk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trading Bot Cloud v0.3.1</title><style>
-:root{font-family:Inter,system-ui,Arial;background:#0b1120;color:#edf2ff}*{box-sizing:border-box}body{margin:0;padding:24px;max-width:1200px;margin:auto}header,.actions{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}h1{font-size:25px;margin:0}h2{font-size:16px;margin:0 0 15px}.sub,small{color:#9ba9c4}.tag{color:#a7e9d1;background:#173b34;padding:7px 12px;border-radius:30px;font-size:12px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:23px 0}.card,.panel{background:#151f32;border:1px solid #2a3650;border-radius:15px;padding:18px}.value{font-size:26px;font-weight:750;margin-top:9px}.panel{margin-bottom:14px;overflow-x:auto}.actions{justify-content:flex-start;margin:16px 0}button{border:0;border-radius:9px;padding:12px 17px;background:#4d77e8;color:white;font-weight:700;cursor:pointer}button.secondary{background:#33435d}button.danger{background:#9f3543}button:disabled{opacity:.5}.risk-meter{height:9px;border-radius:9px;background:#293950;overflow:hidden;margin-top:9px}.risk-fill{height:100%;background:#64deb1;transition:width .25s}.risk-fill.warn{background:#ff8b97}.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}.stat{border:1px solid #2b3953;padding:11px;border-radius:9px}.stat small{display:block;margin-bottom:5px}.stat strong{font-size:16px}table{width:100%;border-collapse:collapse;font-size:13px;min-width:540px}td,th{text-align:left;padding:11px;border-bottom:1px solid #2b3953}th{color:#9ba9c4}.green{color:#64deb1}.red{color:#ff8b97}.neutral{color:#aebbd2}.pnl-cell{font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap}#message{min-height:20px;color:#ffbd7c}footer{font-size:12px;color:#9ba9c4;line-height:1.7}#chart{width:100%;height:160px;display:block} .pill{padding:5px 10px;border:1px solid #2a3650;border-radius:8px}@media(max-width:560px){body{padding:13px}h1{font-size:20px}.card{padding:13px}.value{font-size:22px}.actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.actions button{min-height:44px;padding:10px 8px;font-size:12px}.actions [data-action=\"stop\"]{grid-column:span 2}table{min-width:0}td,th{padding:9px 7px;white-space:nowrap}.panel{padding:14px}.stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-</style></head><body><header><div><h1>Trading Bot <span class="sub">Cloud v0.3.1</span></h1><small>Cloudflare Workers · persistent paper trading</small></div><span class="tag">SYNTHETIC PAPER · NO REAL MONEY</span></header>
+export const HTML = `<!doctype html><html lang="sk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trading Bot Cloud v0.3.2</title><style>
+:root{font-family:Inter,system-ui,Arial;background:#0b1120;color:#edf2ff}*{box-sizing:border-box}body{margin:0;padding:24px;max-width:1200px;margin:auto}header,.actions{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}h1{font-size:25px;margin:0}h2{font-size:16px;margin:0 0 15px}.sub,small{color:#9ba9c4}.tag{color:#a7e9d1;background:#173b34;padding:7px 12px;border-radius:30px;font-size:12px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:23px 0}.card,.panel{background:#151f32;border:1px solid #2a3650;border-radius:15px;padding:18px}.value{font-size:26px;font-weight:750;margin-top:9px}.panel{margin-bottom:14px;overflow-x:auto}.actions{justify-content:flex-start;margin:16px 0}button{border:0;border-radius:9px;padding:12px 17px;background:#4d77e8;color:white;font-weight:700;cursor:pointer}button.secondary{background:#33435d}button.danger{background:#9f3543}button:disabled{opacity:.5}.risk-meter{height:9px;border-radius:9px;background:#293950;overflow:hidden;margin-top:9px}.risk-fill{height:100%;background:#64deb1;transition:width .25s}.risk-fill.warn{background:#ff8b97}.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}.stat{border:1px solid #2b3953;padding:11px;border-radius:9px}.stat small{display:block;margin-bottom:5px}.stat strong{font-size:16px}table{width:100%;border-collapse:collapse;font-size:13px;min-width:540px}td,th{text-align:left;padding:11px;border-bottom:1px solid #2b3953}th{color:#9ba9c4}.green{color:#64deb1}.red{color:#ff8b97}.neutral{color:#aebbd2}.pnl-cell{font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap}#message{min-height:20px;color:#ffbd7c}footer{font-size:12px;color:#9ba9c4;line-height:1.7}#chart{width:100%;height:205px;display:block;touch-action:pan-y;cursor:crosshair}.chart-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.chart-head h2{margin:0}.chart-range{display:flex;gap:5px}.chart-range button{padding:7px 12px;background:#293950;color:#b9c7de;border:1px solid #3a4b64;font-size:12px}.chart-range button.active{background:#4d77e8;color:white;border-color:#4d77e8}.chart-readout{color:#b9c7de;min-height:20px;font-size:13px;margin:10px 0 6px;font-variant-numeric:tabular-nums} .pill{padding:5px 10px;border:1px solid #2a3650;border-radius:8px}@media(max-width:560px){body{padding:13px}h1{font-size:20px}.card{padding:13px}.value{font-size:22px}.actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.actions button{min-height:44px;padding:10px 8px;font-size:12px}.actions [data-action=\"stop\"]{grid-column:span 2}table{min-width:0}td,th{padding:9px 7px;white-space:nowrap}.panel{padding:14px}.stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style></head><body><header><div><h1>Trading Bot <span class="sub">Cloud v0.3.2</span></h1><small>Cloudflare Workers · persistent paper trading</small></div><span class="tag">SYNTHETIC PAPER · NO REAL MONEY</span></header>
 <div class="cards"><div class="card"><small>Hodnota účtu</small><div class="value" id="equity">–</div></div><div class="card"><small>Voľná hotovosť</small><div class="value" id="cash">–</div></div><div class="card"><small>Investované v pozíciách</small><div class="value" id="invested">–</div></div><div class="card"><small>Celkový P/L</small><div class="value" id="pnl">–</div></div><div class="card"><small>Stav bota</small><div class="value" id="status">–</div></div></div>
 <div class="actions"><button data-action="start">Spustiť</button><button class="secondary" data-action="pause">Pauza po dokončení</button><button class="danger" data-action="stop">Núdzové STOP</button><button class="secondary" data-action="reset">Reset demo účtu</button><button class="secondary" id="logout">Odhlásiť sa</button></div><div id="message" role="status"></div>
-<section class="panel"><h2>Vývoj hodnoty účtu</h2><svg id="chart" viewBox="0 0 900 160" preserveAspectRatio="none" aria-label="Graf vývoja hodnoty virtuálneho účtu"><text x="15" y="80" fill="#9ba9c4">Graf sa zobrazí po prvých tickoch</text></svg></section>
+<section class="panel"><div class="chart-head"><h2>Vývoj hodnoty účtu</h2><div class="chart-range" role="group" aria-label="Časový rozsah grafu"><button data-range="1h" type="button">1H</button><button data-range="24h" type="button" class="active">24H</button><button data-range="7d" type="button">7D</button></div></div><div id="chart-readout" class="chart-readout" aria-live="polite">Dotkni sa grafu pre hodnotu a čas.</div><svg id="chart" viewBox="0 0 900 205" preserveAspectRatio="none" role="img" aria-label="Vývoj hodnoty virtuálneho účtu v čase"><text x="40" y="100" fill="#9ba9c4">Načítavam graf…</text></svg><small id="chart-note">Graf využíva nové časové záznamy a neovplyvňuje obchodovanie.</small></section>
 <section class="panel"><h2>Skutočný trh – iba sledovanie</h2><div class="sub" id="market-status">Načítavam zdroj cien…</div><div id="market-quotes" style="margin-top:12px"></div><small>Reálne ceny sú v USD. Kým nevyriešime FX, spread a aktuálnosť feedu, tieto ceny NEOVPLYVŇUJÚ simulované obchody.</small></section>
 <section class="panel"><h2>Limity a testovací trh</h2><div id="limits" class="sub"></div><div id="prices" class="sub" style="margin-top:10px"></div><div id="updated" class="sub" style="margin-top:10px"></div><div id="risk" style="margin-top:12px"></div></section>
 <section class="panel"><h2>Výsledky simulovaných obchodov</h2><div id="stats" class="stat-grid">Načítavam…</div><small>Úspešnosť a drawdown sú len zo syntetického simulátora. Bez reálnych cien, poplatkov a spreadu.</small></section>
 <section class="panel"><h2>Otvorené pozície</h2><table><thead><tr><th>Symbol</th><th>Počet</th><th>Vstup</th><th>Aktuálna cena</th><th>P/L</th><th>Zostáva</th></tr></thead><tbody id="positions"></tbody></table></section>
 <section class="panel"><h2>Ukončené obchody</h2><table><thead><tr><th>Čas (UTC)</th><th>Symbol</th><th>Vstup</th><th>Výstup</th><th>P/L</th><th>Dôvod</th></tr></thead><tbody id="trades"></tbody></table></section>
 <section class="panel"><h2>Log rozhodnutí</h2><div id="events" class="sub"></div></section>
-<footer>V0.3.1 CLOUD: ceny sú syntetické, stratégia nie je AI, žiadne objednávky neodchádzajú brokerovi. Cloudflare cron vykoná najviac jeden simulačný krok za minútu a čas vykonania nie je garantovaný. Simulované TP/SL môžu byť pri testovaní prekročené medzi tickmi. Denný limit straty blokuje nové obchody, nie všetky možné straty. V systéme nie sú reálne trhové ceny, spread, poplatky ani reálny slippage.</footer>
+<footer>V0.3.2 CLOUD: ceny sú syntetické, stratégia nie je AI, žiadne objednávky neodchádzajú brokerovi. Cloudflare cron vykoná najviac jeden simulačný krok za minútu a čas vykonania nie je garantovaný. Simulované TP/SL môžu byť pri testovaní prekročené medzi tickmi. Denný limit straty blokuje nové obchody, nie všetky možné straty. V systéme nie sú reálne trhové ceny, spread, poplatky ani reálny slippage.</footer>
 <script src="/client.js"></script></body></html>`;
 
 export const CLIENT = `const $=id=>document.getElementById(id),eur=x=>Number(x).toFixed(2)+' €';
 const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pl=x=>'<span class="'+(Number(x)>0?'green':Number(x)<0?'red':'neutral')+' pnl-cell">'+(Number(x)>0?'+':'')+eur(x)+'</span>';
 let pending=false;
-function draw(points){const svg=$('chart');if(points.length<2)return;const vals=points.map(x=>x.equity),mn=Math.min(...vals),mx=Math.max(...vals),diff=mx-mn||1;const p=vals.map((v,i)=>(16+i*868/(vals.length-1))+','+(142-(v-mn)/diff*122)).join(' ');svg.innerHTML='<line x1="16" x2="884" y1="142" y2="142" stroke="#34445c"/><polyline points="'+p+'" fill="none" stroke="#64deb1" stroke-width="2.5" vector-effect="non-scaling-stroke"/><text x="17" y="12" fill="#9ba9c4" font-size="12">'+mx.toFixed(2)+' €</text><text x="17" y="156" fill="#9ba9c4" font-size="12">'+mn.toFixed(2)+' €</text>'}
+let range='24h',allChartPoints=[],renderedPoints=[],selectedIndex=null;
+const windows={'1h':3600000,'24h':86400000,'7d':604800000};
+const stamp=x=>{const t=Date.parse(x.at||'');return Number.isFinite(t)?t:NaN};
+const dateLabel=(ms,wide=false)=>new Date(ms).toLocaleString('sk-SK',wide?{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}:{hour:'2-digit',minute:'2-digit'});
+const svgText=(x,y,label,anchor='start')=>'<text x="'+x+'" y="'+y+'" text-anchor="'+anchor+'" fill="#9ba9c4" font-size="13">'+label+'</text>';
+function draw(points){
+  allChartPoints=Array.isArray(points)?points:[];
+  const svg=$('chart'),cutoff=Date.now()-windows[range];
+  let data=allChartPoints.filter(p=>Number.isFinite(stamp(p))&&Number.isFinite(Number(p.equity))&&stamp(p)>=cutoff&&stamp(p)<=Date.now()+120000);
+  data.sort((a,b)=>stamp(a)-stamp(b));
+  renderedPoints=data;
+  $('chart-note').textContent='Časová os v miestnom čase · nové záznamy každé 2 obchodné ticky. Staršie záznamy bez času sa do intervalov nezapočítavajú.';
+  if(data.length<2){
+    svg.innerHTML=svgText(450,96,'Zatiaľ málo časových dát pre '+range.toUpperCase(),'middle');
+    $('chart-readout').textContent='Pre toto obdobie potrebujeme aspoň 2 časové záznamy.';
+    return;
+  }
+  const vals=data.map(p=>Number(p.equity)),lo=Math.min(...vals),hi=Math.max(...vals);
+  const pad=Math.max((hi-lo)*.12,0.02),min=lo-pad,max=hi+pad;
+  const first=stamp(data[0]),last=stamp(data[data.length-1]),span=Math.max(1,last-first);
+  const xAt=p=>55+(stamp(p)-first)/span*820;
+  const yAt=p=>169-(Number(p.equity)-min)/(max-min)*139;
+  const coords=data.map(p=>xAt(p).toFixed(2)+','+yAt(p).toFixed(2)).join(' ');
+  const rising=vals.at(-1)>=vals[0],stroke=rising?'#64deb1':'#ff8b97';
+  let out='';
+  for(let i=0;i<3;i++){
+    const y=30+i*69.5,value=max-i*(max-min)/2;
+    out+='<line x1="55" y1="'+y+'" x2="875" y2="'+y+'" stroke="#304057" stroke-dasharray="3 7"/>'+svgText(47,y-5,value.toFixed(2)+' €','end');
+  }
+  out+='<polyline points="'+coords+'" fill="none" stroke="'+stroke+'" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+  out+=svgText(55,197,dateLabel(first,range==='7d'))+svgText(465,197,dateLabel(first+span/2,range==='7d'),'middle')+svgText(875,197,dateLabel(last,range==='7d'),'end');
+  if(selectedIndex!==null&&data[selectedIndex]){
+    const p=data[selectedIndex],x=xAt(p),y=yAt(p);
+    out+='<line x1="'+x+'" x2="'+x+'" y1="25" y2="169" stroke="#8193b2" stroke-dasharray="4 4"/><circle cx="'+x+'" cy="'+y+'" r="5" stroke="#0b1120" stroke-width="2" fill="'+stroke+'"/>';
+  }
+  svg.innerHTML=out;
+  const chosen=selectedIndex===null?data.at(-1):data[Math.min(selectedIndex,data.length-1)];
+  $('chart-readout').textContent=dateLabel(stamp(chosen),true)+' · '+eur(chosen.equity)+(selectedIndex===null?' (posledný záznam)':'');
+}
+function choosePoint(event){
+  if(!renderedPoints.length)return;
+  const bounds=$('chart').getBoundingClientRect();
+  if(!bounds.width)return;
+  const x=(event.clientX-bounds.left)/bounds.width*900;
+  const first=stamp(renderedPoints[0]),last=stamp(renderedPoints.at(-1)),span=Math.max(1,last-first);
+  let best=0,distance=Infinity;
+  for(let i=0;i<renderedPoints.length;i++){const px=55+(stamp(renderedPoints[i])-first)/span*820,d=Math.abs(px-x);if(d<distance){distance=d;best=i}}
+  selectedIndex=best;draw(allChartPoints);
+}
+$('chart').addEventListener('pointerdown',choosePoint);
+$('chart').addEventListener('pointermove',e=>{if(e.buttons===1)choosePoint(e)});
+document.querySelectorAll('[data-range]').forEach(b=>b.addEventListener('click',()=>{range=b.dataset.range;selectedIndex=null;document.querySelectorAll('[data-range]').forEach(x=>x.classList.toggle('active',x===b));draw(allChartPoints)}));
 async function refresh(){if(pending)return;try{const r=await fetch('/api/state',{cache:'no-store'});if(r.status===401){location.href='/';return}if(!r.ok)throw Error('HTTP '+r.status);const result=await r.json(),s=result.state;
 $('equity').textContent=eur(s.equity);$('cash').textContent=eur(s.cash);$('invested').textContent=eur(s.invested);
 $('pnl').innerHTML=pl(s.pnl);$('status').textContent=s.status;$('status').className='value '+(s.halted?'red':s.running?'green':'neutral');
@@ -27,7 +78,7 @@ const st=s.stats||{};
 $('stats').innerHTML=[
  ['Obchody',s.trade_count],
  ['Win rate',st.win_rate==null?'–':st.win_rate+' %'],
- ['Profit factor',st.profit_factor==null?'–':st.profit_factor],
+ ['Profit factor',st.profit_factor==null?(s.trade_count===0?'Nedostatok dát':s.losses===0?'Bez strát':'Nedostatok dát'):st.profit_factor],
  ['Uzavreté P/L',eur(st.closed_pnl||0)],
  ['Max. drawdown',(st.max_drawdown_pct??0)+' %']
 ].map(([k,v])=>'<div class="stat"><small>'+esc(k)+'</small><strong>'+esc(v)+'</strong></div>').join('');
