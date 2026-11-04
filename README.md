@@ -99,3 +99,13 @@ Otvor workers.dev URL a zadaj heslo z kroku 3. Po prihlásení klikni na **Spust
 - Twelve Data free-tier credits are limited. The current watchlist uses up to 3 requests per 5 minutes during the nominal US session (234 requests per 6.5-hour trading day).
 - Synthetic strategy stats are calculated only from existing paper trades and are **not** real-market performance.
 - Worker scheduled jobs are best effort; quote freshness is always assessed independently.
+
+## v0.3.2 – equity chart and profit factor
+- Added three local-time chart windows: 1H, 24H, 7D.
+- Time-stamped equity samples are recorded every second active synthetic tick and retained up to 6,000 samples (~8 days at exactly 1 tick per minute). Time ranges use timestamps, not estimated tick intervals.
+- Old equity points from earlier versions lack timestamps and deliberately do not appear in time-filtered views. Existing trades, balances, and previous paper equity samples are not deleted.
+- Touch or click the SVG chart to inspect the closest sample timestamp and exact displayed equity.
+- P/L chart line becomes green/red based on the first and last visible recorded equity, not the entire lifetime P/L.
+- Profit Factor reads "Bez strát" if there are winning trades but no losing trades; this is not a numeric profit factor.
+- If the worker is paused, no new snapshots are created; 1H charts can legitimately become empty.
+- Simulation remains entirely synthetic; no Trading 212 orders, AI decisions, or real-market execution.
