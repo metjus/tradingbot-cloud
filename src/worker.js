@@ -48,7 +48,7 @@ export default {
         if(expected!==actual)return json({message:'Invalid credentials'},401);
         const t=await createSession(env.DASHBOARD_PASSWORD);const r=json({ok:true});r.headers.append('Set-Cookie',`tb_session=${t}; Max-Age=43200; ${COOKIE_OPTIONS}`);return r;
       }
-      if(path==='/health')return json({ok:true,version:'0.2.0-cloud'});
+      if(path==='/health')return json({ok:true,version:'0.2.1-cloud'});
       if(path==='/login.js'&&req.method==='GET')return new Response("document.getElementById('f').onsubmit=async e=>{e.preventDefault();let r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:e.target.password.value})});if(r.ok)location.href='/';else document.getElementById('err').textContent='Nesprávne heslo alebo chyba prihlásenia.'}",{headers:{...HEADERS,'Content-Type':'application/javascript; charset=utf-8'}});
       const authed=await authenticated(req,env.DASHBOARD_PASSWORD);
       if(!authed){if(path==='/' && req.method==='GET')return page(LOGIN_PAGE);return json({message:'Not authenticated'},401)}
