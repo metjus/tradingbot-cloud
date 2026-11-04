@@ -1,5 +1,6 @@
 import {fresh,step,act,view,assertSafe} from './engine.js';
 import {HTML, CLIENT} from './ui.js';
+import {loadMarket,refreshMarket} from './market.js';
 const HEADERS={'Cache-Control':'no-store, private','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"};
 const json=(obj,status=200)=>new Response(JSON.stringify(obj),{status,headers:{...HEADERS,'Content-Type':'application/json; charset=utf-8'}});
 const page=(html,status=200)=>new Response(html,{status,headers:{...HEADERS,'Content-Type':'text/html; charset=utf-8'}});
@@ -48,7 +49,7 @@ export default {
         if(expected!==actual)return json({message:'Invalid credentials'},401);
         const t=await createSession(env.DASHBOARD_PASSWORD);const r=json({ok:true});r.headers.append('Set-Cookie',`tb_session=${t}; Max-Age=43200; ${COOKIE_OPTIONS}`);return r;
       }
-      if(path==='/health')return json({ok:true,version:'0.2.1-cloud'});
+      if(path==='/health')return json({ok:true,version:'0.3.0-market-watch'});
       if(path==='/login.js'&&req.method==='GET')return new Response("document.getElementById('f').onsubmit=async e=>{e.preventDefault();let r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:e.target.password.value})});if(r.ok)location.href='/';else document.getElementById('err').textContent='Nesprávne heslo alebo chyba prihlásenia.'}",{headers:{...HEADERS,'Content-Type':'application/javascript; charset=utf-8'}});
       const authed=await authenticated(req,env.DASHBOARD_PASSWORD);
       if(!authed){if(path==='/' && req.method==='GET')return page(LOGIN_PAGE);return json({message:'Not authenticated'},401)}
@@ -58,7 +59,7 @@ export default {
       }
       if(path==='/'&&req.method==='GET')return page(HTML);
       if(path==='/client.js'&&req.method==='GET')return new Response(CLIENT,{headers:{...HEADERS,'Content-Type':'application/javascript; charset=utf-8'}});
-      if(path==='/api/state'&&req.method==='GET')return json(await getState(env.DB));
+      if(path==='/api/state'&&req.method==='GET')return json({...await getState(env.DB),market:await loadMarket(env.DB,env)});
       if(path==='/api/action'&&req.method==='POST'){
         if(!sameOrigin(req))return json({message:'Origin mismatch'},403);
         let body=await req.json().catch(()=>null),action=body?.action;
@@ -74,6 +75,11 @@ export default {
       // No updates when completely inactive, to avoid unnecessary D1 writes.
       const r=await mutate(env.DB,s=>{if(s.running||s.pause_requested||Object.keys(s.positions).length>0)step(s);return {ok:true}});
       if(!r.ok)console.error('Scheduled tick retry exhausted');
+      // Market watch runs only every five minutes during the NY regular session.
+      // Its data is observational, never fed into the synthetic execution engine.
+      if(env.TWELVEDATA_API_KEY&&new Date().getUTCMinutes()%5===0){
+        try{await refreshMarket(env.DB,env)}catch(e){console.error('Market watch refresh failed',String(e?.message||e))}
+      }
     })());
   }
 };
