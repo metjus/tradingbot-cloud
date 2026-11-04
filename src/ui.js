@@ -6,6 +6,7 @@ export const HTML = `<!doctype html><html lang="sk"><head><meta charset="utf-8">
 <section class="panel"><h2>Vývoj hodnoty účtu</h2><svg id="chart" viewBox="0 0 900 160" preserveAspectRatio="none" aria-label="Graf vývoja hodnoty virtuálneho účtu"><text x="15" y="80" fill="#9ba9c4">Graf sa zobrazí po prvých tickoch</text></svg></section>
 <section class="panel"><h2>Skutočný trh – iba sledovanie</h2><div class="sub" id="market-status">Načítavam zdroj cien…</div><div id="market-quotes" style="margin-top:12px"></div><small>Reálne ceny sú v USD. Kým nevyriešime FX, spread a aktuálnosť feedu, tieto ceny NEOVPLYVŇUJÚ simulované obchody.</small></section>
 <section class="panel"><h2>Limity a testovací trh</h2><div id="limits" class="sub"></div><div id="prices" class="sub" style="margin-top:10px"></div><div id="updated" class="sub" style="margin-top:10px"></div></section>
+<section class="panel"><h2>Výsledky simulovaných obchodov</h2><div id="stats" class="sub">Načítavam…</div><small>Úspešnosť a drawdown sú len zo syntetického simulátora. Bez reálnych cien, poplatkov a spreadu.</small></section>
 <section class="panel"><h2>Otvorené pozície</h2><table><thead><tr><th>Symbol</th><th>Počet</th><th>Vstup</th><th>Aktuálna cena</th><th>P/L</th></tr></thead><tbody id="positions"></tbody></table></section>
 <section class="panel"><h2>Ukončené obchody</h2><table><thead><tr><th>Čas (UTC)</th><th>Symbol</th><th>Vstup</th><th>Výstup</th><th>P/L</th><th>Dôvod</th></tr></thead><tbody id="trades"></tbody></table></section>
 <section class="panel"><h2>Log rozhodnutí</h2><div id="events" class="sub"></div></section>
@@ -22,6 +23,8 @@ $('equity').textContent=eur(s.equity);$('cash').textContent=eur(s.cash);$('inves
 $('pnl').innerHTML=pl(s.pnl);$('status').textContent=s.status;$('status').className='value '+(s.halted?'red':s.running?'green':'neutral');
 $('limits').textContent='Počiatočný kapitál: '+eur(s.initial)+' · Riziko/obchod: '+s.limits.risk_per_trade_pct+' % · Denný limit straty: '+s.limits.daily_loss_pct+' % · Stop-loss: '+s.limits.stop_loss_pct+' % · Take-profit: '+s.limits.take_profit_pct+' % · Max. trvanie: '+(s.limits.max_hold_minutes||15)+' min · Max. pozície: '+s.limits.max_positions+' · Max. alokácia/pozícia: '+s.limits.max_allocation_pct+' %';
 $('prices').textContent='Syntetické ceny: '+Object.entries(s.prices).map(([k,v])=>k+': '+Number(v).toFixed(2)).join(' · ')+' · Tick '+s.tick;
+const st=s.stats||{}; $('stats').textContent='Uzavretých obchodov: '+s.trade_count+' · Win rate: '+(st.win_rate==null?'–':st.win_rate+' %')+' · Profit factor: '+(st.profit_factor==null?'–':st.profit_factor)+' · Uzavreté P/L: '+eur(st.closed_pnl||0)+' · Max. drawdown: '+(st.max_drawdown_pct??0)+' %';
+
 $('updated').textContent='Posledný zápis: '+(result.updatedAt||'Zatiaľ žiadny')+' · Kontroly cca raz/min';
 const m=result.market||{};const isOpen=!!m.sessionOpen;
 $('market-status').textContent=(m.configured?'Twelve Data · '+(isOpen?'US bežná seansa':'Mimo bežnej US seansy'):'Zatiaľ nenakonfigurované')+' · '+(m.updatedAt?'Posledné overenie '+new Date(m.updatedAt).toLocaleString('sk-SK'):'Žiadne stiahnuté ceny')+' · '+(m.notice||'');
