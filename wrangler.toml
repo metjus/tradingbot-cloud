@@ -10,3 +10,6 @@ crons = ["* * * * *"]
 binding = "DB"
 database_name = "tradingbot-paper-db"
 database_id = "bce9049e-dfae-4f83-961a-e6d1a07f2d8b"
+
+[observability]
+enabled = true
