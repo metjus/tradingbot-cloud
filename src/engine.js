@@ -63,6 +63,7 @@ function buy(s,sym){
     return false;
   }
   const {qty:q,price}=decision;
+  const stop=s.limits.stop_loss_pct/100;
   s.cash=round(s.cash-q*price);
   s.positions[sym]={qty:q,entry:round(price,5),stop:round(price*(1-stop)),target:round(price*(1+s.limits.take_profit_pct/100)),opened_tick:s.tick,opened_at:nowIso(),policy_version:'0.2.1'};
   log(s,'buy',`BUY ${sym} ${q.toFixed(4)} @ ${price.toFixed(2)} (synthetic)`);return true;
