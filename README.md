@@ -87,3 +87,15 @@ Otvor workers.dev URL a zadaj heslo z kroku 3. Po prihlásení klikni na **Spust
 - D1 optimistic concurrency používajú update s `revision`, aby paralelné požiadavky neprepísali navzájom stav.
 - Cron 1 min zodpovedá hodinovým/denným testom aplikácie; nie je to platforma na sub-second scalping.
 - Pre reálne nasadenie budú potrebné robustnejšie prístupové kontroly a plnohodnotný audit limitov, trhových dát a objednávok.
+
+## v0.3.0 – read-only real market data
+- Synthetic paper trading is intentionally unchanged (SIM-ALPHA / BETA / GAMMA).
+- AAPL, MSFT, NVDA quote snapshots are fetched from Twelve Data only during the regular New York weekday window, approximately once every 5 minutes.
+- US holidays, halts and provider delay are detected by quote age when possible; the session schedule itself does not include a US holidays calendar.
+- These stocks are denominated in USD and are NOT used by the EUR paper engine. No live orders are possible.
+- The quote panel reports source timestamps and marks stale data.
+- Set the `TWELVEDATA_API_KEY` secret in Cloudflare Worker -> Settings -> Variables and Secrets -> Add -> Secret, then save/deploy. Never put the key in GitHub files or send it in chat.
+- Data may be absent outside US regular market hours, when the free API limit is hit, or until provider API key is added.
+- Twelve Data free-tier credits are limited. The current watchlist uses up to 3 requests per 5 minutes during the nominal US session (234 requests per 6.5-hour trading day).
+- Synthetic strategy stats are calculated only from existing paper trades and are **not** real-market performance.
+- Worker scheduled jobs are best effort; quote freshness is always assessed independently.
