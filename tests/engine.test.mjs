@@ -77,3 +77,18 @@ test('risk manager reports countdown and cash allocation to dashboard',()=>{
  assert.ok(v.positions[0].remaining_seconds<=14*60+2);
  assert.ok(v.positions[0].remaining_seconds>0);
 });
+
+test('chart snapshots gain accurate timestamps without losing previous history',()=>{
+ const s=fresh();s.equity_history=[{tick:1,equity:500.11}];act(s,'start');
+ step(s);step(s);
+ assert.equal(s.equity_history[0].at,undefined);
+ const latest=s.equity_history.at(-1);
+ assert.equal(latest.tick,2);
+ assert.ok(Number.isFinite(Date.parse(latest.at)));
+ assert.ok(Math.abs(Date.now()-Date.parse(latest.at))<10000);
+ assert.equal(view(s).equity_history.length,2);
+});
+test('time series can retain more than 150 equity data points',()=>{
+ const s=fresh();s.equity_history=Array.from({length:160},(_,i)=>({tick:i*2,at:new Date(Date.now()-i*60000).toISOString(),equity:500+i*.01}));
+ assert.equal(view(s).equity_history.length,160);
+});
