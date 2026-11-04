@@ -60,8 +60,8 @@ test('risk manager rejects duplicate symbol and capped positions',()=>{
 });
 test('risk manager enforces total initial allocation and daily drawdown',()=>{
  const s=fresh();act(s,'start');
- s.positions['SIM-ALPHA']={entry:100,qty:4.99,stop:99.2,target:100.6,opened_tick:1};
- s.cash=1;
+ s.positions['SIM-ALPHA']={entry:100,qty:5,stop:99.2,target:100.6,opened_tick:1};
+ s.cash=0;
  assert.equal(checkEntry(s,'SIM-BETA').reason,'CAPITAL_LIMIT');
  s.positions={};s.cash=490;s.day_equity=500;
  assert.equal(checkEntry(s,'SIM-ALPHA').reason,'DAILY_LOSS_LIMIT');
