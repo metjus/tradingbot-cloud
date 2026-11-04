@@ -3,7 +3,7 @@ export const HTML = `<!doctype html><html lang="sk"><head><meta charset="utf-8">
 </style></head><body><header><div><h1>Trading Bot <span class="sub">Cloud v0.3.2</span></h1><small>Cloudflare Workers · persistent paper trading</small></div><span class="tag">SYNTHETIC PAPER · NO REAL MONEY</span></header>
 <div class="cards"><div class="card"><small>Hodnota účtu</small><div class="value" id="equity">–</div></div><div class="card"><small>Voľná hotovosť</small><div class="value" id="cash">–</div></div><div class="card"><small>Investované v pozíciách</small><div class="value" id="invested">–</div></div><div class="card"><small>Celkový P/L</small><div class="value" id="pnl">–</div></div><div class="card"><small>Stav bota</small><div class="value" id="status">–</div></div></div>
 <div class="actions"><button data-action="start">Spustiť</button><button class="secondary" data-action="pause">Pauza po dokončení</button><button class="danger" data-action="stop">Núdzové STOP</button><button class="secondary" data-action="reset">Reset demo účtu</button><button class="secondary" id="logout">Odhlásiť sa</button></div><div id="message" role="status"></div>
-<section class="panel"><div class="chart-head"><h2>Vývoj hodnoty účtu</h2><div class="chart-range" role="group" aria-label="Časový rozsah grafu"><button data-range="1h" type="button">1H</button><button data-range="24h" type="button" class="active">24H</button><button data-range="7d" type="button">7D</button></div></div><div id="chart-readout" class="chart-readout" aria-live="polite">Dotkni sa grafu pre hodnotu a čas.</div><svg id="chart" viewBox="0 0 900 205" preserveAspectRatio="none" role="img" aria-label="Vývoj hodnoty virtuálneho účtu v čase"><text x="40" y="100" fill="#9ba9c4">Načítavam graf…</text></svg><small id="chart-note">Graf využíva nové časové záznamy a neovplyvňuje obchodovanie.</small></section>
+<section class="panel"><div class="chart-head"><h2>Vývoj hodnoty účtu</h2><div class="chart-range" role="group" aria-label="Časový rozsah grafu"><button data-range="1h" type="button">1H</button><button data-range="24h" type="button" class="active">24H</button><button data-range="7d" type="button">7D</button></div></div><div id="chart-readout" class="chart-readout" aria-live="polite">Dotkni sa grafu pre hodnotu a čas.</div><svg id="chart" viewBox="0 0 440 205" preserveAspectRatio="none" role="img" aria-label="Vývoj hodnoty virtuálneho účtu v čase"><text x="40" y="100" fill="#9ba9c4">Načítavam graf…</text></svg><small id="chart-note">Graf využíva nové časové záznamy a neovplyvňuje obchodovanie.</small></section>
 <section class="panel"><h2>Skutočný trh – iba sledovanie</h2><div class="sub" id="market-status">Načítavam zdroj cien…</div><div id="market-quotes" style="margin-top:12px"></div><small>Reálne ceny sú v USD. Kým nevyriešime FX, spread a aktuálnosť feedu, tieto ceny NEOVPLYVŇUJÚ simulované obchody.</small></section>
 <section class="panel"><h2>Limity a testovací trh</h2><div id="limits" class="sub"></div><div id="prices" class="sub" style="margin-top:10px"></div><div id="updated" class="sub" style="margin-top:10px"></div><div id="risk" style="margin-top:12px"></div></section>
 <section class="panel"><h2>Výsledky simulovaných obchodov</h2><div id="stats" class="stat-grid">Načítavam…</div><small>Úspešnosť a drawdown sú len zo syntetického simulátora. Bez reálnych cien, poplatkov a spreadu.</small></section>
@@ -30,24 +30,26 @@ function draw(points){
   renderedPoints=data;
   $('chart-note').textContent='Časová os v miestnom čase · nové záznamy každé 2 obchodné ticky. Staršie záznamy bez času sa do intervalov nezapočítavajú.';
   if(data.length<2){
-    svg.innerHTML=svgText(450,96,'Zatiaľ málo časových dát pre '+range.toUpperCase(),'middle');
+    const width=Math.max(280,svg.clientWidth||440);svg.setAttribute('viewBox','0 0 '+width+' 205');svg.innerHTML=svgText(width/2,96,'Zatiaľ málo dát pre '+range.toUpperCase(),'middle');
     $('chart-readout').textContent='Pre toto obdobie potrebujeme aspoň 2 časové záznamy.';
     return;
   }
+  const width=Math.max(280,svg.clientWidth||440),left=69,right=width-13,plotWidth=right-left;
+  svg.setAttribute('viewBox','0 0 '+width+' 205');
   const vals=data.map(p=>Number(p.equity)),lo=Math.min(...vals),hi=Math.max(...vals);
   const pad=Math.max((hi-lo)*.12,0.02),min=lo-pad,max=hi+pad;
   const first=stamp(data[0]),last=stamp(data[data.length-1]),span=Math.max(1,last-first);
-  const xAt=p=>55+(stamp(p)-first)/span*820;
+  const xAt=p=>left+(stamp(p)-first)/span*plotWidth;
   const yAt=p=>169-(Number(p.equity)-min)/(max-min)*139;
   const coords=data.map(p=>xAt(p).toFixed(2)+','+yAt(p).toFixed(2)).join(' ');
   const rising=vals.at(-1)>=vals[0],stroke=rising?'#64deb1':'#ff8b97';
   let out='';
   for(let i=0;i<3;i++){
     const y=30+i*69.5,value=max-i*(max-min)/2;
-    out+='<line x1="55" y1="'+y+'" x2="875" y2="'+y+'" stroke="#304057" stroke-dasharray="3 7"/>'+svgText(47,y-5,value.toFixed(2)+' €','end');
+    out+='<line x1="'+left+'" y1="'+y+'" x2="'+right+'" y2="'+y+'" stroke="#304057" stroke-dasharray="3 7"/>'+svgText(left-5,y-5,value.toFixed(2)+' €','end');
   }
   out+='<polyline points="'+coords+'" fill="none" stroke="'+stroke+'" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
-  out+=svgText(55,197,dateLabel(first,range==='7d'))+svgText(465,197,dateLabel(first+span/2,range==='7d'),'middle')+svgText(875,197,dateLabel(last,range==='7d'),'end');
+  out+=svgText(left,197,dateLabel(first,range==='7d'))+(width>520?svgText((left+right)/2,197,dateLabel(first+span/2,range==='7d'),'middle'):'')+svgText(right,197,dateLabel(last,range==='7d'),'end');
   if(selectedIndex!==null&&data[selectedIndex]){
     const p=data[selectedIndex],x=xAt(p),y=yAt(p);
     out+='<line x1="'+x+'" x2="'+x+'" y1="25" y2="169" stroke="#8193b2" stroke-dasharray="4 4"/><circle cx="'+x+'" cy="'+y+'" r="5" stroke="#0b1120" stroke-width="2" fill="'+stroke+'"/>';
@@ -60,10 +62,11 @@ function choosePoint(event){
   if(!renderedPoints.length)return;
   const bounds=$('chart').getBoundingClientRect();
   if(!bounds.width)return;
-  const x=(event.clientX-bounds.left)/bounds.width*900;
+  const width=Math.max(280,bounds.width),left=69,right=width-13,plotWidth=right-left;
+  const x=(event.clientX-bounds.left)/bounds.width*width;
   const first=stamp(renderedPoints[0]),last=stamp(renderedPoints.at(-1)),span=Math.max(1,last-first);
   let best=0,distance=Infinity;
-  for(let i=0;i<renderedPoints.length;i++){const px=55+(stamp(renderedPoints[i])-first)/span*820,d=Math.abs(px-x);if(d<distance){distance=d;best=i}}
+  for(let i=0;i<renderedPoints.length;i++){const px=left+(stamp(renderedPoints[i])-first)/span*plotWidth,d=Math.abs(px-x);if(d<distance){distance=d;best=i}}
   selectedIndex=best;draw(allChartPoints);
 }
 $('chart').addEventListener('pointerdown',choosePoint);
