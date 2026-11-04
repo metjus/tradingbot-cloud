@@ -1,6 +1,6 @@
 // Deterministic synthetic-paper simulator. No market feeds, broker, or AI integration.
 export const SYMBOLS = ['SIM-ALPHA', 'SIM-BETA', 'SIM-GAMMA'];
-export const VERSION = '0.3.0-cloud';
+export const VERSION = '0.3.1-cloud';
 export const POLICY = Object.freeze({stop_loss_pct:0.8,take_profit_pct:0.6,max_hold_minutes:15});
 const START_PRICES = [100, 55, 180];
 const round = (n, places=8) => Math.round(n * (10**places)) / (10**places);
@@ -39,11 +39,30 @@ function applyPolicy(s){
     }
   }
 }
-function buy(s,sym){
-  if(!s.running||s.pause_requested||s.halted||lossHit(s)||sym in s.positions||Object.keys(s.positions).length>=s.limits.max_positions)return false;
+export function checkEntry(s,sym){
+  if(!s.running)return {ok:false,reason:'BOT_NOT_RUNNING'};
+  if(s.pause_requested)return {ok:false,reason:'PAUSE_PENDING'};
+  if(s.halted)return {ok:false,reason:'EMERGENCY_STOP'};
+  if(lossHit(s))return {ok:false,reason:'DAILY_LOSS_LIMIT'};
+  if(!SYMBOLS.includes(sym))return {ok:false,reason:'UNKNOWN_SYMBOL'};
+  if(sym in s.positions)return {ok:false,reason:'DUPLICATE_POSITION'};
+  if(Object.keys(s.positions).length>=s.limits.max_positions)return {ok:false,reason:'POSITION_LIMIT'};
   const price=s.prices[sym],stop=s.limits.stop_loss_pct/100,risk=s.initial*s.limits.risk_per_trade_pct/100;
-  const q=Math.floor(Math.min(risk/(price*stop),s.initial*s.limits.max_allocation_pct/100/price,s.cash/price)*10000)/10000;
-  if(q<=0||q*price>s.cash+1e-7)return false;
+  if(!valid(price)||price<=0||!valid(stop)||stop<=0)return {ok:false,reason:'INVALID_PRICE'};
+  const reserved=Object.values(s.positions).reduce((sum,p)=>sum+p.entry*p.qty,0);
+  const available=Math.max(0,Math.min(s.cash,s.initial-reserved));
+  const q=Math.floor(Math.min(risk/(price*stop),s.initial*s.limits.max_allocation_pct/100/price,available/price)*10000)/10000;
+  if(!valid(q)||q<=0||q*price>available+1e-7)return {ok:false,reason:'CAPITAL_LIMIT'};
+  return {ok:true,qty:q,price};
+}
+function buy(s,sym){
+  const decision=checkEntry(s,sym);
+  if(!decision.ok){
+    // Record only strategy-signal rejections, bounded by existing 100-event log.
+    log(s,'risk','REJECT '+sym+': '+decision.reason);
+    return false;
+  }
+  const {qty:q,price}=decision;
   s.cash=round(s.cash-q*price);
   s.positions[sym]={qty:q,entry:round(price,5),stop:round(price*(1-stop)),target:round(price*(1+s.limits.take_profit_pct/100)),opened_tick:s.tick,opened_at:nowIso(),policy_version:'0.2.1'};
   log(s,'buy',`BUY ${sym} ${q.toFixed(4)} @ ${price.toFixed(2)} (synthetic)`);return true;
@@ -91,9 +110,11 @@ export function act(s,action){
   assertSafe(s);return {ok:true,message:'OK'};
 }
 export function assertSafe(s){
-  if(!valid(s.cash)||s.cash < -0.00001 || !valid(equity(s)))throw Error('Capital safety invariant failed');
+  if(!valid(s.initial)||s.initial<=0||!valid(s.cash)||s.cash < -0.00001 || !valid(equity(s)))throw Error('Capital safety invariant failed');
+  const committed=Object.values(s.positions).reduce((a,p)=>a+p.entry*p.qty,0);
+  if(committed>s.initial+0.01)throw Error('Committed capital exceeded initial capital');
   if(Object.keys(s.positions).length>s.limits.max_positions)throw Error('Position count exceeded');
-  for(const [sym,p] of Object.entries(s.positions))if(!SYMBOLS.includes(sym)||!valid(p.qty)||p.qty<=0||!valid(p.entry)||p.entry<=0)throw Error('Invalid position');
+  for(const [sym,p] of Object.entries(s.positions))if(!SYMBOLS.includes(sym)||!valid(p.qty)||p.qty<=0||!valid(p.entry)||p.entry<=0||!valid(s.prices[sym])||s.prices[sym]<=0)throw Error('Invalid position');
 }
 export function view(s){
   const eq=equity(s),inv=invested(s),wins=s.trades.filter(t=>t.pnl>0).length,losses=s.trades.filter(t=>t.pnl<0).length;
@@ -104,7 +125,7 @@ export function view(s){
   return {version:VERSION,mode:'SYNTHETIC PAPER · NO LIVE DATA',running:s.running,pause_requested:s.pause_requested,halted:s.halted,
     status:s.halted?'STOP':s.pause_requested?'ČAKÁ NA UZAVRETIE':s.running?'BEŽÍ':'PAUZA',tick:s.tick,
     initial:s.initial,cash:round(s.cash,2),equity:round(eq,2),invested:round(inv,2),pnl:round(eq-s.initial,2),
-    day_equity:s.day_equity,daily_loss_hit:lossHit(s),limits:s.limits,prices:s.prices,
-    positions:Object.entries(s.positions).map(([symbol,p])=>({symbol,...p,market:s.prices[symbol],unrealized:round(p.qty*(s.prices[symbol]-p.entry),4)})),
+    day_equity:s.day_equity,daily_loss_hit:lossHit(s),daily_loss_remaining:round(Math.max(0,eq-s.day_equity*(1-s.limits.daily_loss_pct/100)),2),committed:round(Object.values(s.positions).reduce((a,p)=>a+p.entry*p.qty,0),2),limits:s.limits,prices:s.prices,
+    positions:Object.entries(s.positions).map(([symbol,p])=>({symbol,...p,market:s.prices[symbol],unrealized:round(p.qty*(s.prices[symbol]-p.entry),4),remaining_seconds:Math.max(0,Math.ceil((s.limits.max_hold_minutes*60000-(p.opened_at?Date.now()-Date.parse(p.opened_at):(s.tick-p.opened_tick)*60000))/1000))})),
     trades:s.trades.slice(0,50),trade_count:s.trades.length,wins,losses,stats:{win_rate:s.trades.length?round(wins/s.trades.length*100,2):null,profit_factor:grossLoss?round(grossProfit/grossLoss,2):(grossProfit>0?null:0),gross_profit:round(grossProfit,2),gross_loss:round(grossLoss,2),closed_pnl:round(closedPnl,2),max_drawdown_pct:round(drawdownPct,2)},equity_history:s.equity_history.slice(-150),events:s.events.slice(0,35)};
 }
