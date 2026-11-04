@@ -24,3 +24,26 @@ test('emergency stop flattens and blocks restart, reset re-enables',()=>{
 test('reset forbidden while trading or with open positions',()=>{
  const s=fresh();act(s,'start');assert.equal(act(s,'reset').ok,false);
 });
+
+test('new paper risk settings and 15-minute time exit',()=>{
+ const s=fresh();
+ assert.equal(s.limits.stop_loss_pct,0.8);
+ assert.equal(s.limits.take_profit_pct,0.6);
+ assert.equal(s.limits.max_hold_minutes,15);
+ s.positions['SIM-ALPHA']={qty:1,entry:100,stop:99.2,target:100.6,opened_tick:0,opened_at:new Date(Date.now()-16*60000).toISOString(),policy_version:'0.2.1'};
+ s.cash=400;
+ // Even if TP/SL is not reached, an expired position must close.
+ step(s);
+ assert.equal(Object.keys(s.positions).length,0);
+ assert.equal(s.trades[0].reason,'time exit (15 min)');
+});
+test('existing paper account migrates to v0.2.1 rules without reset',()=>{
+ const s=fresh();
+ s.limits.stop_loss_pct=2;s.limits.take_profit_pct=1.2;
+ s.positions['SIM-ALPHA']={qty:1,entry:100,stop:98,target:101.2,opened_tick:0};
+ s.cash=400;
+ act(s,'pause');
+ assert.equal(s.positions['SIM-ALPHA'].stop,99.2);
+ assert.equal(s.positions['SIM-ALPHA'].target,100.6);
+ assert.equal(s.limits.max_hold_minutes,15);
+});
