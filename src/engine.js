@@ -1,6 +1,6 @@
 // Deterministic synthetic-paper simulator. No market feeds, broker, or AI integration.
 export const SYMBOLS = ['SIM-ALPHA', 'SIM-BETA', 'SIM-GAMMA'];
-export const VERSION = '0.2.1-cloud';
+export const VERSION = '0.3.0-cloud';
 export const POLICY = Object.freeze({stop_loss_pct:0.8,take_profit_pct:0.6,max_hold_minutes:15});
 const START_PRICES = [100, 55, 180];
 const round = (n, places=8) => Math.round(n * (10**places)) / (10**places);
@@ -97,10 +97,14 @@ export function assertSafe(s){
 }
 export function view(s){
   const eq=equity(s),inv=invested(s),wins=s.trades.filter(t=>t.pnl>0).length,losses=s.trades.filter(t=>t.pnl<0).length;
+  const grossProfit=s.trades.reduce((v,t)=>v+Math.max(0,t.pnl),0),grossLoss=s.trades.reduce((v,t)=>v+Math.max(0,-t.pnl),0);
+  const closedPnl=s.trades.reduce((v,t)=>v+t.pnl,0);
+  const series=[s.initial,...s.equity_history.map(x=>x.equity),eq];let peak=series[0],drawdownPct=0;
+  for(const val of series){peak=Math.max(peak,val);if(peak>0)drawdownPct=Math.max(drawdownPct,(peak-val)/peak*100)}
   return {version:VERSION,mode:'SYNTHETIC PAPER · NO LIVE DATA',running:s.running,pause_requested:s.pause_requested,halted:s.halted,
     status:s.halted?'STOP':s.pause_requested?'ČAKÁ NA UZAVRETIE':s.running?'BEŽÍ':'PAUZA',tick:s.tick,
     initial:s.initial,cash:round(s.cash,2),equity:round(eq,2),invested:round(inv,2),pnl:round(eq-s.initial,2),
     day_equity:s.day_equity,daily_loss_hit:lossHit(s),limits:s.limits,prices:s.prices,
     positions:Object.entries(s.positions).map(([symbol,p])=>({symbol,...p,market:s.prices[symbol],unrealized:round(p.qty*(s.prices[symbol]-p.entry),4)})),
-    trades:s.trades.slice(0,50),trade_count:s.trades.length,wins,losses,equity_history:s.equity_history.slice(-150),events:s.events.slice(0,35)};
+    trades:s.trades.slice(0,50),trade_count:s.trades.length,wins,losses,stats:{win_rate:s.trades.length?round(wins/s.trades.length*100,2):null,profit_factor:grossLoss?round(grossProfit/grossLoss,2):(grossProfit>0?null:0),gross_profit:round(grossProfit,2),gross_loss:round(grossLoss,2),closed_pnl:round(closedPnl,2),max_drawdown_pct:round(drawdownPct,2)},equity_history:s.equity_history.slice(-150),events:s.events.slice(0,35)};
 }
