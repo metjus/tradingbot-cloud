@@ -1,6 +1,6 @@
 // Deterministic synthetic-paper simulator. No market feeds, broker, or AI integration.
 export const SYMBOLS = ['SIM-ALPHA', 'SIM-BETA', 'SIM-GAMMA'];
-export const VERSION = '0.3.1-cloud';
+export const VERSION = '0.3.2-cloud';
 export const POLICY = Object.freeze({stop_loss_pct:0.8,take_profit_pct:0.6,max_hold_minutes:15});
 const START_PRICES = [100, 55, 180];
 const round = (n, places=8) => Math.round(n * (10**places)) / (10**places);
@@ -89,7 +89,8 @@ export function step(s){
       if(h.at(-1)>avg*1.002&&h.at(-1)>h.at(-4))buy(s,sym);
     }
   }
-  if(s.tick%2===0){s.equity_history.push({tick:s.tick,equity:round(equity(s),4)});s.equity_history=s.equity_history.slice(-400)}
+  // Keep timestamped snapshots for 7-day chart windows; do not invent timestamps for earlier snapshots.
+  if(s.tick%2===0){s.equity_history.push({tick:s.tick,at:nowIso(),equity:round(equity(s),4)});s.equity_history=s.equity_history.slice(-6000)}
   assertSafe(s);return s;
 }
 export function act(s,action){
@@ -128,5 +129,5 @@ export function view(s){
     initial:s.initial,cash:round(s.cash,2),equity:round(eq,2),invested:round(inv,2),pnl:round(eq-s.initial,2),
     day_equity:s.day_equity,daily_loss_hit:lossHit(s),daily_loss_remaining:round(Math.max(0,eq-s.day_equity*(1-s.limits.daily_loss_pct/100)),2),committed:round(Object.values(s.positions).reduce((a,p)=>a+p.entry*p.qty,0),2),limits:s.limits,prices:s.prices,
     positions:Object.entries(s.positions).map(([symbol,p])=>({symbol,...p,market:s.prices[symbol],unrealized:round(p.qty*(s.prices[symbol]-p.entry),4),remaining_seconds:Math.max(0,Math.ceil((s.limits.max_hold_minutes*60000-(p.opened_at?Date.now()-Date.parse(p.opened_at):(s.tick-p.opened_tick)*60000))/1000))})),
-    trades:s.trades.slice(0,50),trade_count:s.trades.length,wins,losses,stats:{win_rate:s.trades.length?round(wins/s.trades.length*100,2):null,profit_factor:grossLoss?round(grossProfit/grossLoss,2):(grossProfit>0?null:0),gross_profit:round(grossProfit,2),gross_loss:round(grossLoss,2),closed_pnl:round(closedPnl,2),max_drawdown_pct:round(drawdownPct,2)},equity_history:s.equity_history.slice(-150),events:s.events.slice(0,35)};
+    trades:s.trades.slice(0,50),trade_count:s.trades.length,wins,losses,stats:{win_rate:s.trades.length?round(wins/s.trades.length*100,2):null,profit_factor:grossLoss?round(grossProfit/grossLoss,2):(grossProfit>0?null:0),gross_profit:round(grossProfit,2),gross_loss:round(grossLoss,2),closed_pnl:round(closedPnl,2),max_drawdown_pct:round(drawdownPct,2)},equity_history:s.equity_history.slice(-6000),events:s.events.slice(0,35)};
 }
