@@ -80,3 +80,14 @@ test('emergency stop locks entries and exits on next verified snapshot, not stal
  assert.ok(s.trades.every(t=>t.reason==='EMERGENCY_EXIT'));
  assert.equal(controlPaper(s,'start',at).ok,false);
 });
+
+test('paper sandbox does not open fresh positions within last 20 minutes of session',()=>{
+ const t=new Date('2026-11-05T20:25:00Z'),s=newRealPaper();
+ controlPaper(s,'start',t);
+ for(let i=0;i<3;i++){
+  const at=new Date(t.getTime()+i*5*60000),m=feed(at);
+  m.quotes=m.quotes.map(q=>({...q,price:q.price*(1+i*.002)}));
+  assert.equal(simulateRealStep(s,m,at).ok,true);
+ }
+ assert.equal(Object.keys(s.positions).length,0);
+});
