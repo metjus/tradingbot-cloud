@@ -1,6 +1,6 @@
 // Deterministic synthetic-paper simulator. No market feeds, broker, or AI integration.
 export const SYMBOLS = ['SIM-ALPHA', 'SIM-BETA', 'SIM-GAMMA'];
-export const VERSION = '0.3.2-cloud';
+export const VERSION = '0.4.3-cloud';
 export const POLICY = Object.freeze({stop_loss_pct:0.8,take_profit_pct:0.6,max_hold_minutes:15});
 const START_PRICES = [100, 55, 180];
 const round = (n, places=8) => Math.round(n * (10**places)) / (10**places);
