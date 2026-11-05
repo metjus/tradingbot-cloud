@@ -109,3 +109,12 @@ Otvor workers.dev URL a zadaj heslo z kroku 3. Po prihlásení klikni na **Spust
 - Profit Factor reads "Bez strát" if there are winning trades but no losing trades; this is not a numeric profit factor.
 - If the worker is paused, no new snapshots are created; 1H charts can legitimately become empty.
 - Simulation remains entirely synthetic; no Trading 212 orders, AI decisions, or real-market execution.
+
+## v0.3.3 – market-data verification (read-only)
+- No change to synthetic paper trading or broker connectivity.
+- The Twelve Data market-watch panel exposes feed state, count of attempted/successful checks, source timestamps, and per-symbol errors.
+- A quote is considered recent only if the provider explicitly supplies `last_quote_at`; daily `timestamp` alone is often a bar-open timestamp and must not be mistaken for a live trade.
+- Trading-hours gate uses NY weekdays 09:30–16:00 ET, but does not yet implement the official exchange holiday and halt calendar.
+- An unverified feed always displays a warning. Market-watch status cannot launch trades.
+- The Twelve Data token stays server-side in Cloudflare Secrets and is sent in an Authorization header, never in the URL.
+- Check the dashboard during a regular U.S. session and inspect provider error messages before adding a real-price paper engine.
