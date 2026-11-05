@@ -17,7 +17,7 @@ export const HTML = `<!doctype html><html lang="sk"><head><meta charset="utf-8">
 export const CLIENT = `const $=id=>document.getElementById(id),eur=x=>Number(x).toFixed(2)+' €';
 const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pl=x=>'<span class="'+(Number(x)>0?'green':Number(x)<0?'red':'neutral')+' pnl-cell">'+(Number(x)>0?'+':'')+eur(x)+'</span>';
-let pending=false;
+let pending=false,brokerChecked=false;
 let range='24h',allChartPoints=[],renderedPoints=[],selectedIndex=null;
 const windows={'1h':3600000,'24h':86400000,'7d':604800000};
 const stamp=x=>{const t=Date.parse(x.at||'');return Number.isFinite(t)?t:NaN};
@@ -92,7 +92,7 @@ $('risk').innerHTML='<div class="sub">Záväzne alokované: '+eur(s.committed||0
 
 $('updated').textContent='Posledný zápis: '+(result.updatedAt||'Zatiaľ žiadny')+' · Kontroly cca raz/min';
 const broker=result.broker||{};
-$('t212-status').textContent=broker.configured?'Demo kľúče nastavené · Klikni Overiť Demo API':'Nepripojené · Pre test nastav T212_DEMO_API_KEY a T212_DEMO_API_SECRET v Cloudflare Secrets';
+if(!brokerChecked)$('t212-status').textContent=broker.configured?'Demo kľúče nastavené · Klikni Overiť Demo API':'Nepripojené · Pre test nastav T212_DEMO_API_KEY a T212_DEMO_API_SECRET v Cloudflare Secrets';
 const m=result.market||{},isOpen=!!m.sessionOpen;
 const statuses={MARKET_CLOSED:'Trh zatvorený',FEED_READY:'Zdroj pripravený – iba sledovanie',AWAITING_FIRST_CHECK:'Čaká sa na prvé overenie',PROVIDER_OR_DATA_ERROR:'API alebo dáta hlásia chybu',STALE_OR_UNVERIFIED:'Ceny nie sú overené ako aktuálne'};
 const description=m.configured?(statuses[m.diagnostic]||'Čaká sa na diagnostiku'):'API kľúč nie je nastavený';
@@ -111,7 +111,7 @@ $('t212-check').onclick=async()=>{
  try{
   const r=await fetch('/api/t212/demo',{method:'POST',headers:{'Content-Type':'application/json'}});
   if(!r.ok)throw Error('HTTP '+r.status);
-  const s=await r.json();
+  const s=await r.json();brokerChecked=true;
   $('t212-status').textContent=s.connected?'Demo účet pripojený · Kontrola '+new Date(s.checkedAt).toLocaleString('sk-SK'):'Demo nepripojené · '+(s.error||s.reason||'Neznáma chyba');
   $('t212-result').innerHTML=s.connected?'<div class="stat-grid">'+[['Hodnota Demo účtu',s.account.totalValue],['Voľná hotovosť',s.account.availableToTrade],['Investície',s.account.investedValue],['Počet pozícií',s.positionCount]].map(([k,v])=>'<div class="stat"><small>'+esc(k)+'</small><strong>'+esc(v==null?'–':v)+(k==='Počet pozícií'?'':' '+esc(s.account.currency||''))+'</strong></div>').join('')+'</div><div class="sub" style="margin-top:10px">Pozície: '+(s.positions.map(p=>esc(p.ticker)+' ('+esc(p.quantity)+')').join(' · ')||'Žiadne')+'</div>':'';
  }catch(e){$('t212-status').textContent='Chyba kontroly: '+e.message}
