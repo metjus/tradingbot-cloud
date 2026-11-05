@@ -5,6 +5,17 @@ const round=n=>Math.round(n*1e6)/1e6;
 const isNum=n=>typeof n==='number'&&Number.isFinite(n);
 const log=(s,event,now)=>{s.events.unshift({at:now.toISOString(),event});s.events=s.events.slice(0,50)};
 export const newRealPaper=()=>({currency:'USD',initial:500,cash:500,positions:{},trades:[],events:[],lastSnapshotAt:null,lastQuotes:{},samples:{},halted:false,paused:true,pauseRequested:false,createdAt:new Date().toISOString(),day:null,dayEquity:500,cooldowns:{}});
+export function migratePaper(s){
+ if(!s.samples||typeof s.samples!=='object')s.samples={};
+ if(!s.cooldowns||typeof s.cooldowns!=='object')s.cooldowns={};
+ if(!s.lastQuotes||typeof s.lastQuotes!=='object')s.lastQuotes={};
+ if(!Array.isArray(s.trades))s.trades=[];
+ if(!Array.isArray(s.events))s.events=[];
+ if(!isNum(s.dayEquity))s.dayEquity=s.initial;
+ if(typeof s.paused!=='boolean')s.paused=true;
+ if(typeof s.pauseRequested!=='boolean')s.pauseRequested=false;
+ return s;
+}
 const buyPx=price=>price*(1+(REAL_PAPER_LIMITS.spreadBps/2+REAL_PAPER_LIMITS.slippageBps)/10000);
 const sellPx=price=>price*(1-(REAL_PAPER_LIMITS.spreadBps/2+REAL_PAPER_LIMITS.slippageBps)/10000);
 const markedPx=(s,sym,prices)=>prices[sym]??s.lastQuotes[sym]??s.positions[sym]?.lastMark;
@@ -41,7 +52,7 @@ export function validatePaper(s){
  if(cost>s.initial+0.01)throw Error('PAPER_CAPITAL_INVALID');
 }
 export function controlPaper(s,action,now=new Date()){
- validatePaper(s);
+ migratePaper(s);validatePaper(s);
  if(action==='start'){
   if(s.halted)return {ok:false,reason:'RISK_HALT'};
   s.paused=false;s.pauseRequested=false;log(s,'START market paper (virtual only)',now);
@@ -93,7 +104,7 @@ function open(s,sym,price,now){
  return 'OPENED';
 }
 export function simulateRealStep(s,m,now=new Date()){
- validatePaper(s);
+ migratePaper(s);validatePaper(s);
  const gate=quoteGate(m,now);
  if(!gate.ok)return {ok:false,reason:gate.reason};
  if(s.lastSnapshotAt===m.updatedAt)return {ok:false,reason:'DUPLICATE_SNAPSHOT'};
@@ -128,6 +139,7 @@ export function simulateRealStep(s,m,now=new Date()){
  return {ok:true,signals,eq:paperEquity(s,prices)};
 }
 export function previewPaper(s,m,now=new Date()){
+ migratePaper(s);
  const gate=quoteGate(m,now),prices=gate.ok?gate.prices:s.lastQuotes;
  let eq;
  try{eq=paperEquity(s,prices)}catch{eq=s.cash}
