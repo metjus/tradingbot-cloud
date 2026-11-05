@@ -2,6 +2,7 @@ import {fresh,step,act,view,assertSafe} from './engine.js';
 import {HTML, CLIENT} from './ui.js';
 import {loadMarket,refreshMarket} from './market.js';
 import {configStatus,readDemo} from './trading212.js';
+import {newRealPaper,previewPaper,simulateRealStep} from './real-paper.js';
 const HEADERS={'Cache-Control':'no-store, private','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"};
 const json=(obj,status=200)=>new Response(JSON.stringify(obj),{status,headers:{...HEADERS,'Content-Type':'application/json; charset=utf-8'}});
 const page=(html,status=200)=>new Response(html,{status,headers:{...HEADERS,'Content-Type':'text/html; charset=utf-8'}});
@@ -34,6 +35,26 @@ async function mutate(db,fn){
   return {ok:false,message:'Concurrent update: retry operation'};
 }
 async function getState(db){await ensureDB(db);const row=await db.prepare('SELECT json,updated_at FROM paper_state WHERE id=1').first();return {state:view(row?JSON.parse(row.json):fresh()),updatedAt:row?.updated_at||null}}
+// Isolated USD sandbox: never touches the synthetic paper_state row.
+async function ensureRealPaper(db){await db.prepare('CREATE TABLE IF NOT EXISTS real_price_paper (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, json TEXT NOT NULL)').run()}
+async function getRealPaper(db){
+ await ensureRealPaper(db);
+ const row=await db.prepare('SELECT revision,json FROM real_price_paper WHERE id=1').first();
+ return {revision:row?.revision??0,state:row?JSON.parse(row.json):newRealPaper()};
+}
+async function checkRealPaper(db,market){
+ await ensureRealPaper(db);
+ for(let attempt=0;attempt<5;attempt++){
+  const {revision,state}=await getRealPaper(db);
+  const out=simulateRealStep(state,market);
+  if(!out.ok)return {ok:false,reason:out.reason};
+  const json=JSON.stringify(state);let result;
+  if(revision===0){result=await db.prepare('INSERT OR IGNORE INTO real_price_paper(id,revision,json) VALUES(1,1,?)').bind(json).run()}
+  else{result=await db.prepare('UPDATE real_price_paper SET revision=?,json=? WHERE id=1 AND revision=?').bind(revision+1,json,revision).run()}
+  if(result.meta.changes===1)return {ok:true,signals:out.signals,marketPaper:previewPaper(state,market)};
+ }
+ return {ok:false,reason:'CONCURRENT_UPDATE'};
+}
 const LOGIN_PAGE=`<!doctype html><html lang="sk"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trading Bot · Login</title><style>body{font:16px system-ui;background:#0b1120;color:#ecf2ff;display:grid;min-height:100vh;place-items:center;margin:0}form{background:#151f32;padding:30px;border:1px solid #2a3650;border-radius:18px;width:min(340px,80vw)}input,button{box-sizing:border-box;width:100%;padding:13px;margin-top:12px;border-radius:9px}input{background:#0b1120;color:white;border:1px solid #41506a}button{background:#4d77e8;color:white;border:0;font-weight:bold}small{color:#9ba9c4}#err{color:#ff8b97}</style><form id="f"><h2>Trading Bot Cloud</h2><small>Súkromný paper trading · v0.3.4</small><input type="password" name="password" placeholder="Prístupové heslo" autocomplete="current-password" required><button>Prihlásiť</button><p id="err"></p></form><script src="/login.js"></script></html>`;
 export default {
   async fetch(req,env){
@@ -60,7 +81,17 @@ export default {
       }
       if(path==='/'&&req.method==='GET')return page(HTML);
       if(path==='/client.js'&&req.method==='GET')return new Response(CLIENT,{headers:{...HEADERS,'Content-Type':'application/javascript; charset=utf-8'}});
-      if(path==='/api/state'&&req.method==='GET')return json({...await getState(env.DB),market:await loadMarket(env.DB,env),broker:configStatus(env)});
+      if(path==='/api/state'&&req.method==='GET'){
+        const market=await loadMarket(env.DB,env);
+        const {state:realPaper}=await getRealPaper(env.DB);
+        return json({...await getState(env.DB),market,broker:configStatus(env),marketPaper:previewPaper(realPaper,market)});
+      }
+      if(path==='/api/market-paper/check'&&req.method==='POST'){
+        if(!sameOrigin(req))return json({message:'Origin mismatch'},403);
+        const market=await loadMarket(env.DB,env);
+        const result=await checkRealPaper(env.DB,market);
+        return json(result,result.ok?200:409);
+      }
       // Manual demo check only. No periodic broker polling or trading endpoints.
       if(path==='/api/t212/demo'&&req.method==='POST'){
         if(!sameOrigin(req))return json({message:'Origin mismatch'},403);
