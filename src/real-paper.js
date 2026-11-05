@@ -11,11 +11,11 @@ const log=(s,event,now)=>{s.events.unshift({at:now.toISOString(),event});s.event
 export function quoteGate(m,now=new Date()){
  if(!nySession(now)||!m?.sessionOpen)return {ok:false,reason:'MARKET_CLOSED'};
  if(!m?.readyForPaper||m.diagnostic!=='FEED_READY')return {ok:false,reason:'FEED_NOT_READY'};
- if(!m.updatedAt||!Number.isFinite(Date.parse(m.updatedAt))||now.getTime()-Date.parse(m.updatedAt)>120000||Date.parse(m.updatedAt)>now.getTime()+10000)return {ok:false,reason:'SNAPSHOT_TOO_OLD'};
+ if(!m.updatedAt||!Number.isFinite(Date.parse(m.updatedAt))||now.getTime()-Date.parse(m.updatedAt)>7*60000||Date.parse(m.updatedAt)>now.getTime()+10000)return {ok:false,reason:'SNAPSHOT_TOO_OLD'};
  const quotes={};
  for(const sym of WATCH_SYMBOLS){
   const q=m.quotes?.find(x=>x.symbol===sym);
-  if(!q||q.currency!=='USD'||!quoteIsFresh(q,now.getTime(),120000)||!isNum(q.price)||q.price<=0||q.fresh!==true)return {ok:false,reason:'INVALID_'+sym};
+  if(!q||q.currency!=='USD'||!quoteIsFresh(q,now.getTime(),7*60000)||!isNum(q.price)||q.price<=0||q.fresh!==true)return {ok:false,reason:'INVALID_'+sym};
   quotes[sym]=q.price;
  }
  return {ok:true,prices:quotes};
