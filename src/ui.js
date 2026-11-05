@@ -12,7 +12,7 @@ export const HTML = `<!doctype html><html lang="sk"><head><meta charset="utf-8">
 <section class="panel"><h2>Otvorené pozície</h2><table><thead><tr><th>Symbol</th><th>Počet</th><th>Vstup</th><th>Aktuálna cena</th><th>P/L</th><th>Zostáva</th></tr></thead><tbody id="positions"></tbody></table></section>
 <section class="panel"><h2>Ukončené obchody</h2><table><thead><tr><th>Čas (UTC)</th><th>Symbol</th><th>Vstup</th><th>Výstup</th><th>P/L</th><th>Dôvod</th></tr></thead><tbody id="trades"></tbody></table></section>
 <section class="panel"><h2>Log rozhodnutí</h2><div id="events" class="sub"></div></section>
-<footer>V0.4.0 CLOUD: ceny sú syntetické, stratégia nie je AI, žiadne objednávky neodchádzajú brokerovi. Cloudflare cron vykoná najviac jeden simulačný krok za minútu a čas vykonania nie je garantovaný. Simulované TP/SL môžu byť pri testovaní prekročené medzi tickmi. Denný limit straty blokuje nové obchody, nie všetky možné straty. V systéme nie sú reálne trhové ceny, spread, poplatky ani reálny slippage.</footer>
+<footer>V0.4.0 CLOUD: ceny sú syntetické, stratégia nie je AI, žiadne objednávky neodchádzajú brokerovi. Cloudflare cron vykoná najviac jeden simulačný krok za minútu a čas vykonania nie je garantovaný. Simulované TP/SL môžu byť pri testovaní prekročené medzi tickmi. Denný limit straty blokuje nové obchody, nie všetky možné straty. V pôvodnom syntetickom režime nie sú reálne trhové ceny ani transakčné náklady. Samostatný USD trhový režim v0.4.0 má iba manuálnu kontrolu feedu a predpokladané náklady, zatiaľ bez otvárania pozícií.</footer>
 <script src="/client.js"></script></body></html>`;
 
 export const CLIENT = `const $=id=>document.getElementById(id),eur=x=>Number(x).toFixed(2)+' €';
