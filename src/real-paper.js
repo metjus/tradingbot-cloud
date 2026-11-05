@@ -4,11 +4,12 @@ export const REAL_PAPER_LIMITS=Object.freeze({startingUsd:500,maxPositions:2,max
 const round=n=>Math.round(n*1e6)/1e6;
 const isNum=n=>typeof n==='number'&&Number.isFinite(n);
 const log=(s,event,now)=>{s.events.unshift({at:now.toISOString(),event});s.events=s.events.slice(0,50)};
-export const newRealPaper=()=>({currency:'USD',initial:500,cash:500,positions:{},trades:[],events:[],lastSnapshotAt:null,lastQuotes:{},samples:{},halted:false,paused:true,pauseRequested:false,createdAt:new Date().toISOString(),day:null,dayEquity:500,cooldowns:{}});
+export const newRealPaper=()=>({currency:'USD',initial:500,cash:500,positions:{},trades:[],events:[],lastSnapshotAt:null,lastQuotes:{},lastQuoteTimestamps:{},samples:{},halted:false,paused:true,pauseRequested:false,createdAt:new Date().toISOString(),day:null,dayEquity:500,cooldowns:{}});
 export function migratePaper(s){
  if(!s.samples||typeof s.samples!=='object')s.samples={};
  if(!s.cooldowns||typeof s.cooldowns!=='object')s.cooldowns={};
  if(!s.lastQuotes||typeof s.lastQuotes!=='object')s.lastQuotes={};
+ if(!s.lastQuoteTimestamps||typeof s.lastQuoteTimestamps!=='object')s.lastQuoteTimestamps={};
  if(!Array.isArray(s.trades))s.trades=[];
  if(!Array.isArray(s.events))s.events=[];
  if(!isNum(s.dayEquity))s.dayEquity=s.initial;
@@ -108,8 +109,18 @@ export function simulateRealStep(s,m,now=new Date()){
  const gate=quoteGate(m,now);
  if(!gate.ok)return {ok:false,reason:gate.reason};
  if(s.lastSnapshotAt===m.updatedAt)return {ok:false,reason:'DUPLICATE_SNAPSHOT'};
+ // Provider quote timestamps must advance; a refetched or delayed quote is not a new price observation.
+ for(const sym of WATCH_SYMBOLS){
+  const q=m.quotes.find(q=>q.symbol===sym);
+  if(s.lastQuoteTimestamps[sym]!=null&&q.timestamp<=s.lastQuoteTimestamps[sym])return {ok:false,reason:'REPEATED_PROVIDER_QUOTE_'+sym};
+ }
  const prices=gate.prices,day=now.toISOString().slice(0,10);
- if(s.day!==day){s.day=day;s.dayEquity=paperEquity(s,prices);log(s,'NEW_UTC_DAY baseline '+s.dayEquity.toFixed(2),now)}
+ if(s.day!==day){
+  s.day=day;s.dayEquity=paperEquity(s,prices);
+  // Never interpret overnight gaps as consecutive intraday momentum samples.
+  s.samples={};
+  log(s,'NEW_UTC_DAY baseline '+s.dayEquity.toFixed(2),now);
+ }
  // Verified snapshots only. Close open positions before evaluating new entries.
  for(const [sym,p] of Object.entries(s.positions)){
   const mark=prices[sym],age=now.getTime()-Date.parse(p.openedAt);
@@ -122,6 +133,7 @@ export function simulateRealStep(s,m,now=new Date()){
  }
  for(const sym of WATCH_SYMBOLS){
   const data=s.samples[sym]||[];
+  if(data.length&&Date.parse(m.updatedAt)-Date.parse(data.at(-1).at)>12*60000)data.length=0;
   data.push({at:m.updatedAt,price:prices[sym]});
   s.samples[sym]=data.slice(-12);
  }
@@ -134,7 +146,7 @@ export function simulateRealStep(s,m,now=new Date()){
   }
  }
  if(s.pauseRequested&&Object.keys(s.positions).length===0){s.pauseRequested=false;log(s,'ALL_POSITIONS_DRAINED',now)}
- s.lastQuotes={...prices};s.lastSnapshotAt=m.updatedAt;
+ s.lastQuotes={...prices};s.lastQuoteTimestamps=Object.fromEntries(m.quotes.map(q=>[q.symbol,q.timestamp]));s.lastSnapshotAt=m.updatedAt;
  validatePaper(s);
  return {ok:true,signals,eq:paperEquity(s,prices)};
 }
