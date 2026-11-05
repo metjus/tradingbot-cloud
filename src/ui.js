@@ -4,6 +4,7 @@ export const HTML = `<!doctype html><html lang="sk"><head><meta charset="utf-8">
 <div class="cards"><div class="card"><small>Hodnota účtu</small><div class="value" id="equity">–</div></div><div class="card"><small>Voľná hotovosť</small><div class="value" id="cash">–</div></div><div class="card"><small>Investované v pozíciách</small><div class="value" id="invested">–</div></div><div class="card"><small>Celkový P/L</small><div class="value" id="pnl">–</div></div><div class="card"><small>Stav bota</small><div class="value" id="status">–</div></div></div>
 <div class="actions"><button data-action="start">Spustiť</button><button class="secondary" data-action="pause">Pauza po dokončení</button><button class="danger" data-action="stop">Núdzové STOP</button><button class="secondary" data-action="reset">Reset demo účtu</button><button class="secondary" id="logout">Odhlásiť sa</button></div><div id="message" role="status"></div>
 <section class="panel"><div class="chart-head"><h2>Vývoj hodnoty účtu</h2><div class="chart-range" role="group" aria-label="Časový rozsah grafu"><button data-range="1h" type="button">1H</button><button data-range="24h" type="button" class="active">24H</button><button data-range="7d" type="button">7D</button></div></div><div id="chart-readout" class="chart-readout" aria-live="polite">Dotkni sa grafu pre hodnotu a čas.</div><svg id="chart" viewBox="0 0 440 205" preserveAspectRatio="none" role="img" aria-label="Vývoj hodnoty virtuálneho účtu v čase"><text x="40" y="100" fill="#9ba9c4">Načítavam graf…</text></svg><small id="chart-note">Graf využíva nové časové záznamy a neovplyvňuje obchodovanie.</small></section>
+<section class="panel"><div class="chart-head"><h2>Trading 212 · Demo účet</h2><button id="t212-check" class="secondary" type="button">Overiť Demo API</button></div><div id="t212-status" class="sub" style="margin-top:12px">Kontrolujem konfiguráciu…</div><div id="t212-result" style="margin-top:10px"></div><small>Samostatné DEMO prostredie. Iba čítanie údajov, bez zadávania objednávok. Syntetický bot zostáva nezmenený.</small></section>
 <section class="panel"><h2>Skutočný trh – iba sledovanie</h2><div class="sub" id="market-status">Načítavam zdroj cien…</div><div id="market-diagnostics" class="sub" style="margin-top:9px"></div><div id="market-quotes" style="margin-top:12px"></div><small>Reálne ceny sú v USD. Kým nevyriešime FX, spread a aktuálnosť feedu, tieto ceny NEOVPLYVŇUJÚ simulované obchody.</small></section>
 <section class="panel"><h2>Limity a testovací trh</h2><div id="limits" class="sub"></div><div id="prices" class="sub" style="margin-top:10px"></div><div id="updated" class="sub" style="margin-top:10px"></div><div id="risk" style="margin-top:12px"></div></section>
 <section class="panel"><h2>Výsledky simulovaných obchodov</h2><div id="stats" class="stat-grid">Načítavam…</div><small>Úspešnosť a drawdown sú len zo syntetického simulátora. Bez reálnych cien, poplatkov a spreadu.</small></section>
@@ -90,6 +91,8 @@ $('risk').innerHTML='<div class="sub">Záväzne alokované: '+eur(s.committed||0
 
 
 $('updated').textContent='Posledný zápis: '+(result.updatedAt||'Zatiaľ žiadny')+' · Kontroly cca raz/min';
+const broker=result.broker||{};
+$('t212-status').textContent=broker.configured?'Demo kľúče nastavené · Klikni Overiť Demo API':'Nepripojené · Pre test nastav T212_DEMO_API_KEY a T212_DEMO_API_SECRET v Cloudflare Secrets';
 const m=result.market||{},isOpen=!!m.sessionOpen;
 const statuses={MARKET_CLOSED:'Trh zatvorený',FEED_READY:'Zdroj pripravený – iba sledovanie',AWAITING_FIRST_CHECK:'Čaká sa na prvé overenie',PROVIDER_OR_DATA_ERROR:'API alebo dáta hlásia chybu',STALE_OR_UNVERIFIED:'Ceny nie sú overené ako aktuálne'};
 const description=m.configured?(statuses[m.diagnostic]||'Čaká sa na diagnostiku'):'API kľúč nie je nastavený';
@@ -103,6 +106,17 @@ $('positions').innerHTML=s.positions.map(p=>'<tr><td>'+esc(p.symbol)+'</td><td>'
 $('trades').innerHTML=s.trades.map(t=>'<tr><td>'+esc(t.at)+'</td><td>'+esc(t.symbol)+'</td><td>'+eur(t.entry)+'</td><td>'+eur(t.exit)+'</td><td>'+pl(t.pnl)+'</td><td>'+esc(t.reason)+'</td></tr>').join('')||'<tr><td colspan="6">Zatiaľ žiadne obchody</td></tr>';
 $('events').innerHTML=s.events.map(e=>'<div style="padding:5px 0">'+esc(e.at)+' · '+esc(e.kind)+' · '+esc(e.message)+'</div>').join('')||'Žiadne udalosti';draw(s.equity_history);
 }catch(e){$('message').textContent='Chyba načítania: '+e.message}}
+$('t212-check').onclick=async()=>{
+ const b=$('t212-check');b.disabled=true;$('t212-status').textContent='Overujem Demo API…';
+ try{
+  const r=await fetch('/api/t212/demo',{method:'POST',headers:{'Content-Type':'application/json'}});
+  if(!r.ok)throw Error('HTTP '+r.status);
+  const s=await r.json();
+  $('t212-status').textContent=s.connected?'Demo účet pripojený · Kontrola '+new Date(s.checkedAt).toLocaleString('sk-SK'):'Demo nepripojené · '+(s.error||s.reason||'Neznáma chyba');
+  $('t212-result').innerHTML=s.connected?'<div class="stat-grid">'+[['Hodnota Demo účtu',s.account.totalValue],['Voľná hotovosť',s.account.availableToTrade],['Investície',s.account.investedValue],['Počet pozícií',s.positionCount]].map(([k,v])=>'<div class="stat"><small>'+esc(k)+'</small><strong>'+esc(v==null?'–':v)+(k==='Počet pozícií'?'':' '+esc(s.account.currency||''))+'</strong></div>').join('')+'</div><div class="sub" style="margin-top:10px">Pozície: '+(s.positions.map(p=>esc(p.ticker)+' ('+esc(p.quantity)+')').join(' · ')||'Žiadne')+'</div>':'';
+ }catch(e){$('t212-status').textContent='Chyba kontroly: '+e.message}
+ finally{b.disabled=false}
+};
 document.querySelectorAll('[data-action]').forEach(b=>b.onclick=async()=>{const a=b.dataset.action;if(['stop','reset'].includes(a)&&!confirm(a==='stop'?'Okamžite uzavrieť všetky syntetické pozície a zablokovať obchodovanie?':'Vymazať demo históriu a obnoviť počiatočný kapitál?'))return;pending=true;try{const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:a})});const d=await r.json();$('message').textContent=r.ok?'':d.message||'Chyba';}catch(e){$('message').textContent=e.message}finally{pending=false;refresh()}});
 $('logout').onclick=async()=>{await fetch('/api/logout',{method:'POST'});location.href='/'};
 refresh();setInterval(refresh,12000);`;
