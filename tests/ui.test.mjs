@@ -6,7 +6,7 @@ test('dashboard browser JavaScript parses',()=>{
   assert.doesNotThrow(()=>new vm.Script(CLIENT));
 });
 test('dashboard shows new risk and mobile controls',()=>{
-  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.4.1'])assert.ok(HTML.includes(key),key);
+  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.4.2'])assert.ok(HTML.includes(key),key);
 });
 
 test('equity chart exposes intervals, readout, and local time-axis',()=>{
@@ -27,4 +27,9 @@ test('separate USD paper preview controls are visible',()=>{for(const key of ['i
 test('USD paper controls are independent of synthetic controls',()=>{
  for(const key of ['market-paper-start','market-paper-pause','market-paper-stop','market-paper-positions','market-paper-trades'])assert.ok(HTML.includes(key),key);
  assert.ok(CLIENT.includes('/api/market-paper/action'));
+});
+
+test('force update button, version marker, and cache busted client are present',()=>{
+ for(const key of ['id="force-update"','id="version-check"','client.js?v=0.4.2'])assert.ok(HTML.includes(key),key);
+ for(const key of ['APP_VERSION','checkVersion','force_update','location.replace','cache:\'no-store\''])assert.ok(CLIENT.includes(key),key);
 });
