@@ -6,7 +6,7 @@ test('dashboard browser JavaScript parses',()=>{
   assert.doesNotThrow(()=>new vm.Script(CLIENT));
 });
 test('dashboard shows new risk and mobile controls',()=>{
-  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.4.2'])assert.ok(HTML.includes(key),key);
+  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.4.3'])assert.ok(HTML.includes(key),key);
 });
 
 test('equity chart exposes intervals, readout, and local time-axis',()=>{
