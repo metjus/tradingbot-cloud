@@ -118,3 +118,17 @@ Otvor workers.dev URL a zadaj heslo z kroku 3. Po prihlásení klikni na **Spust
 - An unverified feed always displays a warning. Market-watch status cannot launch trades.
 - The Twelve Data token stays server-side in Cloudflare Secrets and is sent in an Authorization header, never in the URL.
 - Check the dashboard during a regular U.S. session and inspect provider error messages before adding a real-price paper engine.
+
+## v0.4.0 – USD market-price paper preview (manual, safe by default)
+
+The existing synthetic-paper account and its balances/trades are unchanged.
+The new market-paper preview uses a separate D1 table and a separate **500 USD** test balance. It is not a EUR conversion or a Trading 212 account.
+
+- Authenticated dashboard: **Overiť nový snapshot**. Manual only; no automatic orders or entries.
+- Rejects missing, stale, incomplete, non-USD, non-session, and duplicate price snapshots. A successful snapshot emits HOLD-only diagnostics.
+- Records snapshot timestamps and retains isolated state with revision checks.
+- Risk and cost assumptions are explicit (spread 10 bps, simulated slippage 5 bps, fees 0 USD). They are placeholders, not assertions about broker execution.
+- Contains groundwork for max-position and capital checks, but no new-position strategy is enabled. **Do not interpret the preview as a working trading strategy or a profit backtest.**
+- No Trading 212 orders, real positions or real-money operations.
+
+Monitor the GitHub Actions test/deploy result and check the new panel in the mobile dashboard. The quote provider, official market holidays, FX, fee schedules, and realistic slippage all require further validation before paper execution is enabled.
