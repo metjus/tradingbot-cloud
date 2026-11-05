@@ -1,6 +1,6 @@
-# Trading Bot Cloud v0.2.0 — Cloudflare Workers + D1 + GitHub
+# Trading Bot Cloud v0.4.3 — Cloudflare Workers + D1 + GitHub
 
-**Výhradne paper trading.** Nemá napojenie na Trading 212, AI ani reálne trhové dáta. Symboly `SIM-*` sú syntetické. Cron beží približne raz za minútu, nie každú sekundu. Aktuálny lokálny Python bot sa automaticky nemigruje — cloudová verzia používa nový demo účet 500 €.
+**Výhradne simulácia, bez objednávok u brokera a bez reálnych peňazí.** Existujú dva oddelené účty: syntetický SIM účet 500 EUR a USD paper účet 500 USD, ktorý používa overené ceny z Twelve Data na virtuálne obchody. Trading 212 Demo integrácia slúži iba na ručné čítanie stavu účtu a nie je pripojená k obchodnému jadru. Cloudflare Cron beží približne raz za minútu pre syntetický režim a každých päť minút skúša trhový feed.
 
 ## Funkcie
 
@@ -143,3 +143,15 @@ Monitor the GitHub Actions test/deploy result and check the new panel in the mob
 - Pause blocks new entries immediately and allows existing virtual positions to close on verified future quotes; STOP also locks new trading but cannot close a virtual position until the next valid quote. Never treat this as immediate broker liquidation.
 - Open orders are never sent to Trading 212 or any financial service. AI is not used. Broker Demo remains read-only.
 - The New York weekday/hour session check does not yet handle exchange holidays, early closes, quote licensing, corporate actions or benchmark calibration. Avoid real money.
+
+## Audit v0.4.3 — kontrola pred ďalším testovaním
+
+- UI, Worker, package a simulátor majú zjednotenú verziu. Force Update skúša načítať aplikáciu cez nový URL parameter a verzované `/client.js`.
+- GitHub Actions nasadenia používajú jednu concurrency skupinu. Staršie push-nasadenie nemá prepisovať novší commit.
+- Nový USD paper režim odmieta opakovane použité provider timestamps a prerušuje momentum históriu po veľkých dátových výpadkoch alebo na začiatku nového UTC dňa.
+- Prehrávanie snapshotu či neúplné alebo zastarané cenové údaje nesmie vytvoriť nové obchody.
+- Inicializačný SQL skript obsahuje všetky tri aktuálne D1 tabuľky; ich existujúce údaje sa nemenia.
+- `npm test` musí prejsť pred `wrangler deploy`. Úspešný commit neznamená úspešný deploy, skontroluj GitHub Actions.
+- Nevyžaduje sa žiadny reset existujúceho účtu.
+
+**Zostávajúce obmedzenia:** Víkendy a bežná americká seansa sa kontrolujú, ale sviatky/early close/halts nie; chýba nezávislé overenie kvality burzového feedu, realistický order book, menový kurz a plný model poplatkov; demo konektor nebol overený s reálnymi prístupovými údajmi. Cloudflare prihlásenie potrebuje dodatočné WAF/rate-limit zabezpečenie pred použitím na peniaze. Pauza v USD režime vyžaduje ďalší overený trhový snapshot na uzatváranie a STOP nie je okamžitá likvidácia. Nič z toho nie je pripravené na live Trading 212 obchodovanie.
