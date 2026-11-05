@@ -2,7 +2,7 @@ import {fresh,step,act,view,assertSafe} from './engine.js';
 import {HTML, CLIENT} from './ui.js';
 import {loadMarket,refreshMarket} from './market.js';
 import {configStatus,readDemo} from './trading212.js';
-import {newRealPaper,previewPaper,simulateRealStep} from './real-paper.js';
+import {newRealPaper,previewPaper,simulateRealStep,controlPaper,validatePaper} from './real-paper.js';
 const HEADERS={'Cache-Control':'no-store, private','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"};
 const json=(obj,status=200)=>new Response(JSON.stringify(obj),{status,headers:{...HEADERS,'Content-Type':'application/json; charset=utf-8'}});
 const page=(html,status=200)=>new Response(html,{status,headers:{...HEADERS,'Content-Type':'text/html; charset=utf-8'}});
@@ -42,6 +42,20 @@ async function getRealPaper(db){
  const row=await db.prepare('SELECT revision,json FROM real_price_paper WHERE id=1').first();
  return {revision:row?.revision??0,state:row?JSON.parse(row.json):newRealPaper()};
 }
+async function actionRealPaper(db,action){
+ await ensureRealPaper(db);
+ for(let attempt=0;attempt<5;attempt++){
+  const {revision,state}=await getRealPaper(db);
+  validatePaper(state);
+  const out=controlPaper(state,action);
+  if(!out.ok)return out;
+  const encoded=JSON.stringify(state);let result;
+  if(revision===0)result=await db.prepare('INSERT OR IGNORE INTO real_price_paper(id,revision,json) VALUES(1,1,?)').bind(encoded).run();
+  else result=await db.prepare('UPDATE real_price_paper SET revision=?,json=? WHERE id=1 AND revision=?').bind(revision+1,encoded,revision).run();
+  if(result.meta.changes===1)return {ok:true};
+ }
+ return {ok:false,reason:'CONCURRENT_UPDATE'};
+}
 async function checkRealPaper(db,market){
  await ensureRealPaper(db);
  for(let attempt=0;attempt<5;attempt++){
@@ -55,7 +69,7 @@ async function checkRealPaper(db,market){
  }
  return {ok:false,reason:'CONCURRENT_UPDATE'};
 }
-const LOGIN_PAGE=`<!doctype html><html lang="sk"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trading Bot · Login</title><style>body{font:16px system-ui;background:#0b1120;color:#ecf2ff;display:grid;min-height:100vh;place-items:center;margin:0}form{background:#151f32;padding:30px;border:1px solid #2a3650;border-radius:18px;width:min(340px,80vw)}input,button{box-sizing:border-box;width:100%;padding:13px;margin-top:12px;border-radius:9px}input{background:#0b1120;color:white;border:1px solid #41506a}button{background:#4d77e8;color:white;border:0;font-weight:bold}small{color:#9ba9c4}#err{color:#ff8b97}</style><form id="f"><h2>Trading Bot Cloud</h2><small>Súkromný paper trading · v0.4.0</small><input type="password" name="password" placeholder="Prístupové heslo" autocomplete="current-password" required><button>Prihlásiť</button><p id="err"></p></form><script src="/login.js"></script></html>`;
+const LOGIN_PAGE=`<!doctype html><html lang="sk"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trading Bot · Login</title><style>body{font:16px system-ui;background:#0b1120;color:#ecf2ff;display:grid;min-height:100vh;place-items:center;margin:0}form{background:#151f32;padding:30px;border:1px solid #2a3650;border-radius:18px;width:min(340px,80vw)}input,button{box-sizing:border-box;width:100%;padding:13px;margin-top:12px;border-radius:9px}input{background:#0b1120;color:white;border:1px solid #41506a}button{background:#4d77e8;color:white;border:0;font-weight:bold}small{color:#9ba9c4}#err{color:#ff8b97}</style><form id="f"><h2>Trading Bot Cloud</h2><small>Súkromný paper trading · v0.4.1</small><input type="password" name="password" placeholder="Prístupové heslo" autocomplete="current-password" required><button>Prihlásiť</button><p id="err"></p></form><script src="/login.js"></script></html>`;
 export default {
   async fetch(req,env){
     try{
@@ -71,7 +85,7 @@ export default {
         if(expected!==actual)return json({message:'Invalid credentials'},401);
         const t=await createSession(env.DASHBOARD_PASSWORD);const r=json({ok:true});r.headers.append('Set-Cookie',`tb_session=${t}; Max-Age=43200; ${COOKIE_OPTIONS}`);return r;
       }
-      if(path==='/health')return json({ok:true,version:'0.4.0-market-paper-preview'});
+      if(path==='/health')return json({ok:true,version:'0.4.1-market-paper-strategy'});
       if(path==='/login.js'&&req.method==='GET')return new Response("document.getElementById('f').onsubmit=async e=>{e.preventDefault();let r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:e.target.password.value})});if(r.ok)location.href='/';else document.getElementById('err').textContent='Nesprávne heslo alebo chyba prihlásenia.'}",{headers:{...HEADERS,'Content-Type':'application/javascript; charset=utf-8'}});
       const authed=await authenticated(req,env.DASHBOARD_PASSWORD);
       if(!authed){if(path==='/' && req.method==='GET')return page(LOGIN_PAGE);return json({message:'Not authenticated'},401)}
@@ -85,6 +99,13 @@ export default {
         const market=await loadMarket(env.DB,env);
         const {state:realPaper}=await getRealPaper(env.DB);
         return json({...await getState(env.DB),market,broker:configStatus(env),marketPaper:previewPaper(realPaper,market)});
+      }
+      if(path==='/api/market-paper/action'&&req.method==='POST'){
+        if(!sameOrigin(req))return json({message:'Origin mismatch'},403);
+        const body=await req.json().catch(()=>null);
+        if(!['start','pause','stop'].includes(body?.action))return json({message:'Unknown action'},400);
+        const result=await actionRealPaper(env.DB,body.action);
+        return json(result,result.ok?200:409);
       }
       if(path==='/api/market-paper/check'&&req.method==='POST'){
         if(!sameOrigin(req))return json({message:'Origin mismatch'},403);
@@ -115,7 +136,15 @@ export default {
       // Market watch runs only every five minutes during the NY regular session.
       // Its data is observational, never fed into the synthetic execution engine.
       if(env.TWELVEDATA_API_KEY&&new Date().getUTCMinutes()%5===0){
-        try{await refreshMarket(env.DB,env)}catch(e){console.error('Market watch refresh failed',String(e?.message||e))}
+        try{
+          const refreshed=await refreshMarket(env.DB,env);
+          if(!refreshed.skipped){
+            const market=await loadMarket(env.DB,env);
+            // Close positions on verified prices even while paused. New entries require explicit Start.
+            const result=await checkRealPaper(env.DB,market);
+            if(!result.ok&&result.reason!=='DUPLICATE_SNAPSHOT'&&result.reason!=='FEED_NOT_READY')console.info('Market paper check skipped:',result.reason);
+          }
+        }catch(e){console.error('Market watch / USD paper check failed',String(e?.message||e))}
       }
     })());
   }
