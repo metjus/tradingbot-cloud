@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newRealPaper,simulateRealStep,quoteGate,previewPaper,validatePaper} from '../src/real-paper.js';
+import {newRealPaper,simulateRealStep,quoteGate,previewPaper,validatePaper,controlPaper} from '../src/real-paper.js';
 const now=new Date('2026-11-05T15:00:00Z');
 function feed(when=now){
  return {sessionOpen:true,readyForPaper:true,diagnostic:'FEED_READY',updatedAt:when.toISOString(),
@@ -27,5 +27,56 @@ test('stale, incomplete, mismatched and closed data fail closed',()=>{
 });
 test('market paper safety rejects overcommitted positions',()=>{
  const s=newRealPaper();s.positions.AAPL={qty:10,cost:1000};
- assert.throws(()=>validatePaper(s),/PAPER_CAPITAL_INVALID/);
+ assert.throws(()=>validatePaper(s),/POSITION_ALLOCATION_INVALID|PAPER_CAPITAL_INVALID/);
+});
+
+test('opt-in start opens virtual momentum trade without exceeding capital',()=>{
+ const s=newRealPaper();assert.equal(s.paused,true);assert.equal(controlPaper(s,'start',now).ok,true);
+ const base=[100,150,200];
+ for(let i=0;i<3;i++){
+  const at=new Date(now.getTime()+i*5*60000),m=feed(at);
+  m.quotes=m.quotes.map((q,j)=>({...q,price:base[j]*(1+i*.002)}));
+  const r=simulateRealStep(s,m,at);assert.equal(r.ok,true);
+ }
+ assert.ok(Object.keys(s.positions).length>0);
+ assert.ok(Object.keys(s.positions).length<=2);
+ assert.ok(s.cash>=0);
+ for(const p of Object.values(s.positions))assert.ok(p.cost<=125.01);
+ assert.equal(s.trades.length,0);
+});
+test('pause blocks new entries while a virtual position can exit on verified TP',()=>{
+ const s=newRealPaper();controlPaper(s,'start',now);
+ for(let i=0;i<3;i++){
+  const at=new Date(now.getTime()+i*5*60000),m=feed(at);
+  m.quotes=m.quotes.map(q=>({...q,price:q.price*(1+i*.002)}));
+  simulateRealStep(s,m,at);
+ }
+ assert.ok(Object.keys(s.positions).length>0);
+ controlPaper(s,'pause',new Date(now.getTime()+11*60000));
+ assert.equal(s.paused,true);
+ const at=new Date(now.getTime()+15*60000),m=feed(at);
+ m.quotes=m.quotes.map(q=>({...q,price:q.price*1.04}));
+ assert.equal(simulateRealStep(s,m,at).ok,true);
+ assert.equal(Object.keys(s.positions).length,0);
+ assert.equal(s.pauseRequested,false);
+ assert.ok(s.trades.length>0);
+});
+test('emergency stop locks entries and exits on next verified snapshot, not stale prices',()=>{
+ const s=newRealPaper();controlPaper(s,'start',now);
+ for(let i=0;i<3;i++){
+  const at=new Date(now.getTime()+i*5*60000),m=feed(at);
+  m.quotes=m.quotes.map(q=>({...q,price:q.price*(1+i*.002)}));
+  simulateRealStep(s,m,at);
+ }
+ assert.ok(Object.keys(s.positions).length>0);
+ controlPaper(s,'stop',new Date(now.getTime()+11*60000));
+ assert.equal(s.halted,true);
+ assert.equal(Object.keys(s.positions).length>0);
+ const at=new Date(now.getTime()+15*60000),m=feed(at);
+ assert.equal(simulateRealStep(s,{...m,readyForPaper:false},at).ok,false);
+ assert.ok(Object.keys(s.positions).length>0);
+ assert.equal(simulateRealStep(s,m,at).ok,true);
+ assert.equal(Object.keys(s.positions).length,0);
+ assert.ok(s.trades.every(t=>t.reason==='EMERGENCY_EXIT'));
+ assert.equal(controlPaper(s,'start',at).ok,false);
 });
