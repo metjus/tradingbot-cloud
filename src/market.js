@@ -19,7 +19,7 @@ export function normalizeQuote(symbol,data){
   return {symbol,price,currency:'USD',timestamp,timestampSource,source:MARKET_PROVIDER};
 }
 export function quoteIsFresh(q,now=Date.now(),maxAgeMs=MAX_AGE_MS){
-  if(q?.timestampSource==='bar_open')return false;
+  if(q?.timestampSource!=='last_quote_at')return false;
   return Number.isFinite(q?.timestamp)&&Number.isFinite(q?.price)&&q.price>0&&now-q.timestamp*1000>=-120000&&now-q.timestamp*1000<=maxAgeMs;
 }
 const initial=()=>({quotes:[],errors:[],attempts:0,successes:0,lastAttemptAt:null,lastSuccessAt:null});
