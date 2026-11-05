@@ -25,7 +25,7 @@ async function checkVersion(){
   const r=await fetch('/health?v='+Date.now(),{cache:'no-store'});
   if(!r.ok)throw Error('HTTP '+r.status);
   const data=await r.json(),remote=String(data.version||'');
-  const match=remote.match(/^([0-9]+\\.[0-9]+\\.[0-9]+)/);
+  const match=remote.match(/^([0-9]+[.][0-9]+[.][0-9]+)/);
   const server=match?match[1]:'neznáma';
   $('version-check').textContent=server===APP_VERSION?'Aktuálna v'+APP_VERSION:'Server v'+server+' · aktualizuj';
   $('version-check').className=server===APP_VERSION?'green':'red';
