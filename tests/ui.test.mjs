@@ -30,6 +30,6 @@ test('USD paper controls are independent of synthetic controls',()=>{
 });
 
 test('force update button, version marker, and cache busted client are present',()=>{
- for(const key of ['id="force-update"','id="version-check"','client.js?v=0.4.2'])assert.ok(HTML.includes(key),key);
+ for(const key of ['id="force-update"','id="version-check"','client.js?v=0.4.3'])assert.ok(HTML.includes(key),key);
  for(const key of ['APP_VERSION','checkVersion','force_update','location.replace','cache:\'no-store\''])assert.ok(CLIENT.includes(key),key);
 });
