@@ -6,7 +6,7 @@ test('dashboard browser JavaScript parses',()=>{
   assert.doesNotThrow(()=>new vm.Script(CLIENT));
 });
 test('dashboard shows new risk and mobile controls',()=>{
-  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.3.4'])assert.ok(HTML.includes(key),key);
+  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.4.0'])assert.ok(HTML.includes(key),key);
 });
 
 test('equity chart exposes intervals, readout, and local time-axis',()=>{
@@ -21,3 +21,5 @@ test('market diagnostics are visible on mobile',()=>{
  assert.ok(HTML.includes('id="market-diagnostics"'));
  for(const k of ['FEED_READY','PROVIDER_OR_DATA_ERROR','lastAttemptAt','timestampSource'])assert.ok(CLIENT.includes(k),k);
 });
+
+test('separate USD paper preview controls are visible',()=>{for(const key of ['id="market-paper-check"','id="market-paper-status"','id="market-paper-cards"'])assert.ok(HTML.includes(key),key);assert.ok(CLIENT.includes('/api/market-paper/check'));});
