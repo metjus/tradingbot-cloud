@@ -33,6 +33,6 @@ export async function readDemo(env,fetcher=fetch){
    return {...configuration,connected:true,checkedAt:new Date().toISOString(),account,positions:limited,positionCount:positions.length};
  }catch(e){
    const code=String(e?.message||'DEMO_UNKNOWN_ERROR');
-   return {...configuration,connected:false,checkedAt:new Date().toISOString(),account:null,positions:[],error:/^DEMO_(HTTP_\\d+|INVALID_RESPONSE)$/.test(code)?code:'DEMO_NETWORK_OR_RESPONSE_ERROR'};
+   return {...configuration,connected:false,checkedAt:new Date().toISOString(),account:null,positions:[],error:/^DEMO_(HTTP_[0-9]+|INVALID_RESPONSE)$/.test(code)?code:'DEMO_NETWORK_OR_RESPONSE_ERROR'};
  }
 }
