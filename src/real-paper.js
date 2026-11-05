@@ -72,6 +72,10 @@ function signal(s,symbol,price){
  return {symbol,price,momentumPct:momentum,action:pass?'BUY':'HOLD',reason:pass?'MOMENTUM_3_POINTS':'NO_SIGNAL'};
 }
 function open(s,sym,price,now){
+ // Avoid new positions late in the US session, when a 15-minute time exit could miss the close.
+ const clock=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);
+ const hour=Number(clock.find(p=>p.type==='hour')?.value),minute=Number(clock.find(p=>p.type==='minute')?.value);
+ if(hour*60+minute>=15*60+40)return 'SESSION_END_BUFFER';
  if(s.paused||s.halted||s.pauseRequested||sym in s.positions)return 'NOT_ALLOWED';
  if(Object.keys(s.positions).length>=REAL_PAPER_LIMITS.maxPositions)return 'POSITION_LIMIT';
  if(s.cooldowns[sym]&&now.getTime()-Date.parse(s.cooldowns[sym])<REAL_PAPER_LIMITS.cooldownMinutes*60000)return 'COOLDOWN';
