@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {newRealPaper,simulateRealStep,quoteGate,previewPaper,validatePaper,controlPaper} from '../src/real-paper.js';
+import {newRealPaper,simulateRealStep,quoteGate,previewPaper,validatePaper,controlPaper,migratePaper} from '../src/real-paper.js';
 const now=new Date('2026-11-05T15:00:00Z');
 function feed(when=now){
  return {sessionOpen:true,readyForPaper:true,diagnostic:'FEED_READY',updatedAt:when.toISOString(),
@@ -90,4 +90,15 @@ test('paper sandbox does not open fresh positions within last 20 minutes of sess
   assert.equal(simulateRealStep(s,m,at).ok,true);
  }
  assert.equal(Object.keys(s.positions).length,0);
+});
+
+test('existing v0.4.0 USD snapshot migrates without clearing balance or last quote',()=>{
+ const s=newRealPaper();s.cash=487.25;s.lastQuotes.AAPL=100;
+ delete s.samples;delete s.cooldowns;delete s.pauseRequested;delete s.dayEquity;
+ migratePaper(s);validatePaper(s);
+ assert.equal(s.cash,487.25);
+ assert.equal(s.lastQuotes.AAPL,100);
+ assert.deepEqual(s.samples,{});
+ assert.deepEqual(s.cooldowns,{});
+ assert.equal(s.paused,true);
 });
