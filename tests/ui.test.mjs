@@ -6,7 +6,7 @@ test('dashboard browser JavaScript parses',()=>{
   assert.doesNotThrow(()=>new vm.Script(CLIENT));
 });
 test('dashboard shows new risk and mobile controls',()=>{
-  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.3.2'])assert.ok(HTML.includes(key),key);
+  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.3.3'])assert.ok(HTML.includes(key),key);
 });
 
 test('equity chart exposes intervals, readout, and local time-axis',()=>{
@@ -15,4 +15,9 @@ test('equity chart exposes intervals, readout, and local time-axis',()=>{
 });
 test('profit factor handles all-winning streak without dividing by zero',()=>{
  assert.ok(CLIENT.includes("'Bez strát'"));
+});
+
+test('market diagnostics are visible on mobile',()=>{
+ assert.ok(HTML.includes('id="market-diagnostics"'));
+ for(const k of ['FEED_READY','PROVIDER_OR_DATA_ERROR','lastAttemptAt','timestampSource'])assert.ok(CLIENT.includes(k),k);
 });
