@@ -82,7 +82,7 @@ test('emergency stop locks entries and exits on next verified snapshot, not stal
 });
 
 test('paper sandbox does not open fresh positions within last 20 minutes of session',()=>{
- const t=new Date('2026-11-05T20:25:00Z'),s=newRealPaper();
+ const t=new Date('2026-11-05T20:30:00Z'),s=newRealPaper();
  controlPaper(s,'start',t);
  for(let i=0;i<3;i++){
   const at=new Date(t.getTime()+i*5*60000),m=feed(at);
