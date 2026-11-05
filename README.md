@@ -132,3 +132,14 @@ The new market-paper preview uses a separate D1 table and a separate **500 USD**
 - No Trading 212 orders, real positions or real-money operations.
 
 Monitor the GitHub Actions test/deploy result and check the new panel in the mobile dashboard. The quote provider, official market holidays, FX, fee schedules, and realistic slippage all require further validation before paper execution is enabled.
+
+## v0.4.1 – opt-in market-price virtual trading
+- Separate USD account remains independent of the original SIM account and any Trading 212 credentials.
+- New USD-only controls: **Spustiť USD paper**, **Pauza USD**, **Núdzové STOP USD**. All apply only to the USD account; automatic entry is disabled until Start.
+- Every successful 5-minute market refresh is eligible for one engine step. Three consecutively increasing price samples totaling at least 0.25% generate a BUY candidate; this is an unvalidated experimental rule, not an investment recommendation.
+- No duplicate symbols, at most 2 positions, maximum 25% initial capital per position, 0.5% initial capital estimated risk per trade. Entries are blocked during the final 20 minutes of regular New York trading.
+- Positions close based on verified quotes at stop loss (0.8%), take profit (0.6%), or 15 minutes. Prices can gap across limits; the engine does **not** guarantee stop executions at the threshold.
+- Simulated costs: 10 bps total spread, 5 bps slippage per side, $0 additional fee. This is an illustrative model, **not** a verified broker price/fee schedule.
+- Pause blocks new entries immediately and allows existing virtual positions to close on verified future quotes; STOP also locks new trading but cannot close a virtual position until the next valid quote. Never treat this as immediate broker liquidation.
+- Open orders are never sent to Trading 212 or any financial service. AI is not used. Broker Demo remains read-only.
+- The New York weekday/hour session check does not yet handle exchange holidays, early closes, quote licensing, corporate actions or benchmark calibration. Avoid real money.
