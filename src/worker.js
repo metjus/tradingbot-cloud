@@ -1,6 +1,7 @@
 import {fresh,step,act,view,assertSafe} from './engine.js';
 import {HTML, CLIENT} from './ui.js';
 import {loadMarket,refreshMarket} from './market.js';
+import {configStatus,readDemo} from './trading212.js';
 const HEADERS={'Cache-Control':'no-store, private','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"};
 const json=(obj,status=200)=>new Response(JSON.stringify(obj),{status,headers:{...HEADERS,'Content-Type':'application/json; charset=utf-8'}});
 const page=(html,status=200)=>new Response(html,{status,headers:{...HEADERS,'Content-Type':'text/html; charset=utf-8'}});
@@ -59,7 +60,12 @@ export default {
       }
       if(path==='/'&&req.method==='GET')return page(HTML);
       if(path==='/client.js'&&req.method==='GET')return new Response(CLIENT,{headers:{...HEADERS,'Content-Type':'application/javascript; charset=utf-8'}});
-      if(path==='/api/state'&&req.method==='GET')return json({...await getState(env.DB),market:await loadMarket(env.DB,env)});
+      if(path==='/api/state'&&req.method==='GET')return json({...await getState(env.DB),market:await loadMarket(env.DB,env),broker:configStatus(env)});
+      // Manual demo check only. No periodic broker polling or trading endpoints.
+      if(path==='/api/t212/demo'&&req.method==='POST'){
+        if(!sameOrigin(req))return json({message:'Origin mismatch'},403);
+        return json(await readDemo(env));
+      }
       if(path==='/api/action'&&req.method==='POST'){
         if(!sameOrigin(req))return json({message:'Origin mismatch'},403);
         let body=await req.json().catch(()=>null),action=body?.action;
