@@ -102,3 +102,24 @@ test('existing v0.4.0 USD snapshot migrates without clearing balance or last quo
  assert.deepEqual(s.cooldowns,{});
  assert.equal(s.paused,true);
 });
+
+test('replayed provider trade timestamps never create a new momentum point',()=>{
+ const s=newRealPaper();controlPaper(s,'start',now);
+ const first=feed(now);
+ assert.equal(simulateRealStep(s,first,now).ok,true);
+ const later=new Date(now.getTime()+5*60000);
+ const repeated=feed(later);
+ repeated.quotes=repeated.quotes.map(q=>({...q,timestamp:Math.floor(now.getTime()/1000)}));
+ assert.equal(simulateRealStep(s,repeated,later).reason,'REPEATED_PROVIDER_QUOTE_AAPL');
+ assert.equal((s.samples.AAPL||[]).length,1);
+ assert.equal(s.lastSnapshotAt,first.updatedAt);
+});
+test('overnight and large data gaps cannot be misread as momentum',()=>{
+ const s=newRealPaper();controlPaper(s,'start',now);
+ for(let i=0;i<2;i++){const t=new Date(now.getTime()+i*5*60000);const m=feed(t);m.quotes=m.quotes.map(q=>({...q,price:q.price*(1+i*.002)}));assert.equal(simulateRealStep(s,m,t).ok,true)}
+ const late=new Date(now.getTime()+25*60000),m=feed(late);m.quotes=m.quotes.map(q=>({...q,price:q.price*1.01}));
+ const result=simulateRealStep(s,m,late);
+ assert.equal(result.ok,true);
+ assert.equal(result.signals[0].action,'HOLD');
+ assert.equal(result.signals[0].reason,'NEED_3_SAMPLES');
+});
