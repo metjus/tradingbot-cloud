@@ -71,7 +71,7 @@ test('emergency stop locks entries and exits on next verified snapshot, not stal
  assert.ok(Object.keys(s.positions).length>0);
  controlPaper(s,'stop',new Date(now.getTime()+11*60000));
  assert.equal(s.halted,true);
- assert.equal(Object.keys(s.positions).length>0);
+ assert.ok(Object.keys(s.positions).length>0);
  const at=new Date(now.getTime()+15*60000),m=feed(at);
  assert.equal(simulateRealStep(s,{...m,readyForPaper:false},at).ok,false);
  assert.ok(Object.keys(s.positions).length>0);
