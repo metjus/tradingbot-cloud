@@ -1,4 +1,4 @@
-# Trading Bot Cloud v0.4.3 — Cloudflare Workers + D1 + GitHub
+# Trading Bot Cloud v0.4.4 — Cloudflare Workers + D1 + GitHub
 
 **Výhradne simulácia, bez objednávok u brokera a bez reálnych peňazí.** Existujú dva oddelené účty: syntetický SIM účet 500 EUR a USD paper účet 500 USD, ktorý používa overené ceny z Twelve Data na virtuálne obchody. Trading 212 Demo integrácia slúži iba na ručné čítanie stavu účtu a nie je pripojená k obchodnému jadru. Cloudflare Cron beží približne raz za minútu pre syntetický režim a každých päť minút skúša trhový feed.
 
@@ -144,7 +144,7 @@ Monitor the GitHub Actions test/deploy result and check the new panel in the mob
 - Open orders are never sent to Trading 212 or any financial service. AI is not used. Broker Demo remains read-only.
 - The New York weekday/hour session check does not yet handle exchange holidays, early closes, quote licensing, corporate actions or benchmark calibration. Avoid real money.
 
-## Audit v0.4.3 — kontrola pred ďalším testovaním
+## Audit v0.4.4 — kontrola pred ďalším testovaním
 
 - UI, Worker, package a simulátor majú zjednotenú verziu. Force Update skúša načítať aplikáciu cez nový URL parameter a verzované `/client.js`.
 - GitHub Actions nasadenia používajú jednu concurrency skupinu. Staršie push-nasadenie nemá prepisovať novší commit.
@@ -155,3 +155,12 @@ Monitor the GitHub Actions test/deploy result and check the new panel in the mob
 - Nevyžaduje sa žiadny reset existujúceho účtu.
 
 **Zostávajúce obmedzenia:** Víkendy a bežná americká seansa sa kontrolujú, ale sviatky/early close/halts nie; chýba nezávislé overenie kvality burzového feedu, realistický order book, menový kurz a plný model poplatkov; demo konektor nebol overený s reálnymi prístupovými údajmi. Cloudflare prihlásenie potrebuje dodatočné WAF/rate-limit zabezpečenie pred použitím na peniaze. Pauza v USD režime vyžaduje ďalší overený trhový snapshot na uzatváranie a STOP nie je okamžitá likvidácia. Nič z toho nie je pripravené na live Trading 212 obchodovanie.
+
+## v0.4.4 — cost-aware paper order checks and instrument scope
+- Before every USD **paper** BUY, the engine checks net projected TP and SL after modeled entry/exit spread, slippage, and fees. If the profit target cannot cover modeled costs, reject the entry.
+- For every USD **paper** exit, check modeled net realized P/L. Discretionary profit taking is rejected if net P/L is nonpositive; protective STOP_LOSS, TIME_EXIT, and EMERGENCY_EXIT must remain allowed even at a loss.
+- The assessment displays target net P/L, stop net P/L, and mathematical break-even win rate on the USD mobile panel.
+- The assessment explicitly reports `validatedEdge:false`, `expectedNetProfitUsd:null`, and `liveAllowed:false`. The current three-point momentum signal has **no demonstrated positive expectancy**. A profitable target is not evidence of a profitable strategy. The modeled values are not a guaranteed execution price.
+- **Nothing is connected to a broker order submission endpoint**. Live orders stay disabled. USD paper account and existing trade histories are preserved.
+- Instrument scope for exploratory paper phase: AAPL, MSFT, NVDA only. Evaluate adding liquid UCITS equity ETFs and a physical-gold ETC later, after fetching available symbols using the Trading 212 Demo `/equity/metadata/instruments` endpoint and checking currency, venue, liquidity and costs. Direct commodity futures are unavailable through the Invest Public API.
+- Before live integration, add independent strategy validation (out-of-sample, fees, rejected/slipped fills), broker-state reconciliation, pending-order deduplication, allowed-instrument whitelist and separate operator confirmation.
