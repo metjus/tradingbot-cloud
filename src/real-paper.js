@@ -1,5 +1,6 @@
 // Isolated USD paper account using observed market prices. NO broker integration.
 import {WATCH_SYMBOLS,quoteIsFresh,nySession} from './market.js';
+import {checkEntryProfit,checkExitProfit} from './profit-check.js';
 export const REAL_PAPER_LIMITS=Object.freeze({startingUsd:500,maxPositions:2,maxAllocationPct:25,riskPct:.5,stopPct:.8,targetPct:.6,holdMinutes:15,spreadBps:10,slippageBps:5,feeUsd:0,lossLimitPct:2,momentumThresholdPct:.25,cooldownMinutes:20});
 const round=n=>Math.round(n*1e6)/1e6;
 const isNum=n=>typeof n==='number'&&Number.isFinite(n);
@@ -68,7 +69,9 @@ export function controlPaper(s,action,now=new Date()){
  return {ok:true};
 }
 function close(s,sym,market,reason,now){
- const p=s.positions[sym],exit=round(sellPx(market)),proceeds=round(p.qty*exit-REAL_PAPER_LIMITS.feeUsd);
+ const p=s.positions[sym],assessment=checkExitProfit({cost:p.cost,quantity:p.qty,price:market,reason,model:REAL_PAPER_LIMITS});
+ if(!assessment.ok)throw Error('EXIT_PROFIT_CHECK_'+assessment.reason);
+ const exit=round(sellPx(market)),proceeds=round(p.qty*exit-REAL_PAPER_LIMITS.feeUsd);
  s.cash=round(s.cash+proceeds);
  const pnl=round(proceeds-p.cost);
  s.trades.unshift({symbol:sym,pnl,reason,openedAt:p.openedAt,closedAt:now.toISOString(),entry:p.entry,exit,qty:p.qty,cost:p.cost});
@@ -99,9 +102,12 @@ function open(s,sym,price,now){
   (s.cash-REAL_PAPER_LIMITS.feeUsd)/entry)*10000)/10000;
  const cost=round(qty*entry+REAL_PAPER_LIMITS.feeUsd);
  if(qty<=0||cost>s.cash+0.000001)return 'CAPITAL_LIMIT';
+ const payoff=checkEntryProfit({price,quantity:qty,targetPct:REAL_PAPER_LIMITS.targetPct,stopPct:REAL_PAPER_LIMITS.stopPct,model:REAL_PAPER_LIMITS});
+ if(!payoff.ok){log(s,'ENTRY_REJECTED '+sym+' '+payoff.reason,now);return payoff.reason;}
+ // This remains exploratory paper trading; a profitable target does NOT prove positive expectancy.
  s.cash=round(s.cash-cost);
- s.positions[sym]={qty,entry:round(entry),cost,stop:round(stop),target:round(price*(1+REAL_PAPER_LIMITS.targetPct/100)),openedAt:now.toISOString(),lastMark:price};
- log(s,'BUY '+sym+' '+qty+' @ '+entry.toFixed(2)+' USD virtual',now);
+ s.positions[sym]={qty,entry:round(entry),cost,stop:round(stop),target:round(price*(1+REAL_PAPER_LIMITS.targetPct/100)),openedAt:now.toISOString(),lastMark:price,entryAssessment:payoff};
+ log(s,'BUY '+sym+' '+qty+' @ '+entry.toFixed(2)+' USD virtual; target net '+payoff.netTargetUsd+' USD, break-even winrate '+payoff.breakEvenWinRatePct+'%',now);
  return 'OPENED';
 }
 export function simulateRealStep(s,m,now=new Date()){
@@ -158,7 +164,7 @@ export function previewPaper(s,m,now=new Date()){
  const trades=s.trades||[];
  const profit=trades.reduce((v,t)=>v+Math.max(t.pnl,0),0),loss=trades.reduce((v,t)=>v+Math.max(-t.pnl,0),0);
  return {mode:'MARKET_PRICE_PAPER',currency:'USD',initial:s.initial,cash:round(s.cash),equity:eq,pnl:round(eq-s.initial),
-  positions:Object.entries(s.positions).map(([symbol,p])=>({symbol,qty:p.qty,entry:p.entry,mark:markedPx(s,symbol,prices),openedAt:p.openedAt,stop:p.stop,target:p.target})),
+  positions:Object.entries(s.positions).map(([symbol,p])=>({symbol,qty:p.qty,entry:p.entry,mark:markedPx(s,symbol,prices),openedAt:p.openedAt,stop:p.stop,target:p.target,entryAssessment:p.entryAssessment||null})),
   trades:trades.slice(0,20),tradeCount:trades.length,profitFactor:loss?round(profit/loss):profit?'BEZ_STRAT':'NEDOSTATOK_DAT',
   events:s.events.slice(0,15),canCheck:gate.ok,reason:gate.ok?'FEED_OK':gate.reason,paused:s.paused,halted:s.halted,pauseRequested:!!s.pauseRequested,
   lastSnapshotAt:s.lastSnapshotAt,assumptions:REAL_PAPER_LIMITS};
