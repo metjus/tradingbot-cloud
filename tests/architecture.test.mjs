@@ -27,3 +27,14 @@ test('market-price paper is isolated from synthetic state',()=>{
  assert.ok(worker.includes("'/api/market-paper/action'"));
  assert.ok(worker.includes("'/api/t212/demo'"));
 });
+
+test('demo write integration is manual-only, demo-only and journals intent before non-idempotent POST',()=>{
+ const orders=readFileSync(new URL('../src/demo-orders.js',import.meta.url),'utf8');
+ assert.ok(orders.includes('https://demo.trading212.com/api/v0'));
+ assert.ok(!orders.includes('live.trading212.com'));
+ assert.ok(worker.includes('demo_order_intents'));
+ assert.ok(worker.includes("'/api/t212/demo/limit'"));
+ assert.ok(worker.includes("state='UNCERTAIN'"));
+ assert.ok(worker.includes("timeValidity:'DAY'"));
+ assert.ok(!worker.includes('/equity/orders/market'));
+});
