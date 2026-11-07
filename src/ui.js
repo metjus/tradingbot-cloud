@@ -5,7 +5,20 @@ export const HTML = `<!doctype html><html lang="sk"><head><meta charset="utf-8">
 <div class="actions"><button data-action="start">Spustiť</button><button class="secondary" data-action="pause">Pauza po dokončení</button><button class="danger" data-action="stop">Núdzové STOP</button><button class="secondary" data-action="reset">Reset demo účtu</button><button class="secondary" id="logout">Odhlásiť sa</button></div><div id="message" role="status"></div>
 <section class="panel"><div class="chart-head"><h2>Vývoj hodnoty účtu</h2><div class="chart-range" role="group" aria-label="Časový rozsah grafu"><button data-range="1h" type="button">1H</button><button data-range="24h" type="button" class="active">24H</button><button data-range="7d" type="button">7D</button></div></div><div id="chart-readout" class="chart-readout" aria-live="polite">Dotkni sa grafu pre hodnotu a čas.</div><svg id="chart" viewBox="0 0 440 205" preserveAspectRatio="none" role="img" aria-label="Vývoj hodnoty virtuálneho účtu v čase"><text x="40" y="100" fill="#9ba9c4">Načítavam graf…</text></svg><small id="chart-note">Graf využíva nové časové záznamy a neovplyvňuje obchodovanie.</small></section>
 <section class="panel"><div class="chart-head"><h2>Paper trading · skutočné ceny (USD)</h2><button class="secondary" id="market-paper-check" type="button">Overiť nový snapshot</button></div><div class="actions"><button id="market-paper-start" type="button">Spustiť USD paper</button><button class="secondary" id="market-paper-pause" type="button">Pauza USD</button><button class="danger" id="market-paper-stop" type="button">Núdzové STOP USD</button></div><div id="market-paper-status" class="sub" style="margin:10px 0">Načítavam…</div><div class="stat-grid" id="market-paper-cards"></div><div id="market-paper-signals" class="sub" style="margin-top:12px"></div><div id="market-paper-positions" class="sub" style="margin-top:10px"></div><div id="market-paper-profit-check" class="sub" style="margin-top:10px"></div><div id="market-paper-trades" class="sub" style="margin-top:10px"></div><div id="intraday-report" style="margin-top:14px"></div><div id="intraday-decisions" class="sub" style="margin-top:12px"></div><small>Oddelený USD testovací účet. Testovacia momentum stratégia otvára virtuálne pozície iba po samostatnom stlačení Spustiť USD paper; overené ceny spracúva približne každých 5 minút a nové pozície majú maximálne 30-minútové držanie. Pauza zakáže nové vstupy, otvorené pozície sa uzatvárajú podľa TP/SL/času. Núdzové STOP zablokuje nové vstupy a uzavrie virtuálne pozície až pri ďalšej overenej cene, nie okamžite. Spread 10 bps, slippage 5 bps a poplatok 0 USD sú iba pracovné predpoklady. Pred každým virtuálnym vstupom sa kontroluje čistý potenciál TP a pri uzatvorení čistý P/L; stratové ochranné výstupy sa nesmú blokovať. Žiadna konverzia EUR/USD ani spojenie s Trading 212 objednávkami.</small></section>
-<section class="panel"><div class="chart-head"><h2>Trading 212 · Demo účet</h2><button id="t212-check" class="secondary" type="button">Overiť Demo API</button></div><div id="t212-status" class="sub" style="margin-top:12px">Kontrolujem konfiguráciu…</div><div id="t212-result" style="margin-top:10px"></div><small>Samostatné DEMO prostredie. Iba čítanie údajov, bez zadávania objednávok. Syntetický bot zostáva nezmenený.</small></section>
+<section class="panel"><div class="chart-head"><h2>Trading 212 · Demo účet</h2><button id="t212-check" class="secondary" type="button">Overiť Demo API</button></div><div id="t212-status" class="sub" style="margin-top:12px">Kontrolujem konfiguráciu…</div><div id="t212-result" style="margin-top:10px"></div><div class="panel" style="margin-top:14px">
+<h2>Trading 212 Demo · manuálny test objednávky</h2>
+<p class="sub">Iba DEMO. Pred odoslaním musíš potvrdiť každú limitnú objednávku. Max. 25 jednotiek meny účtu na nákup a 100 celkovo na testovanie. Žiadna automatizácia ani Live objednávky.</p>
+<div class="actions"><button type="button" class="secondary" id="demo-catalog-load">Načítať dostupné nástroje</button><button type="button" class="secondary" id="demo-desk-refresh">Skontrolovať objednávky</button></div>
+<div class="stat-grid">
+<label class="stat">Ticker<select id="demo-ticker" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"><option value="">Najprv načítaj nástroje</option></select></label>
+<label class="stat">Smer<select id="demo-side" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"><option value="BUY">BUY – nákup</option><option value="SELL">SELL – predaj</option></select></label>
+<label class="stat">Počet kusov<input id="demo-qty" type="number" min="0.0001" max="100" step="0.0001" inputmode="decimal" placeholder="0.1" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"></label>
+<label class="stat">Limitná cena (mena nástroja)<input id="demo-limit-price" type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" placeholder="100.00" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"></label>
+</div>
+<div class="actions"><button id="demo-submit-limit" type="button" disabled>Potvrdiť DEMO limitnú objednávku</button></div>
+<div id="demo-order-message" role="status" class="sub"></div><div id="demo-order-log" class="sub" style="margin-top:10px"></div>
+<small>Objednávka môže zostať čakajúca alebo sa nevyplniť. Ak API odpovie nejasne, bot ju automaticky neopakuje. Stav musíš skontrolovať v Trading 212 Demo.</small>
+</div><small>Samostatné DEMO prostredie. Iba čítanie údajov, bez zadávania objednávok. Syntetický bot zostáva nezmenený.</small></section>
 <section class="panel"><h2>Skutočný trh – iba sledovanie</h2><div class="sub" id="market-status">Načítavam zdroj cien…</div><div id="market-diagnostics" class="sub" style="margin-top:9px"></div><div id="market-quotes" style="margin-top:12px"></div><small>Reálne ceny sú v USD. Kým nevyriešime FX, spread a aktuálnosť feedu, tieto ceny NEOVPLYVŇUJÚ simulované obchody.</small></section>
 <section class="panel"><h2>Limity a testovací trh</h2><div id="limits" class="sub"></div><div id="prices" class="sub" style="margin-top:10px"></div><div id="updated" class="sub" style="margin-top:10px"></div><div id="risk" style="margin-top:12px"></div></section>
 <section class="panel"><h2>Výsledky simulovaných obchodov</h2><div id="stats" class="stat-grid">Načítavam…</div><small>Úspešnosť a drawdown sú len zo syntetického simulátora. Bez reálnych cien, poplatkov a spreadu.</small></section>
@@ -176,6 +189,52 @@ $('market-paper-check').onclick=async()=>{
  }catch(e){$('market-paper-signals').textContent='Chyba: '+e.message}
  finally{b.disabled=false}
 };
+let demoCurrency='',demoCatalogReady=false;
+const demoPost=async (url,body={})=>{
+ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
+ const result=await r.json();return result;
+};
+async function refreshDemoDesk(){
+ try{
+  const r=await fetch('/api/t212/demo/desk',{cache:'no-store'});
+  if(!r.ok)throw Error('HTTP '+r.status);
+  const data=await r.json();
+  $('demo-order-log').innerHTML='<b>Posledné odoslania DEMO</b><div>'+((data.orders||[]).map(o=>'<div style="padding:6px 0;border-bottom:1px solid #2b3953">'+esc(o.side)+' '+esc(o.ticker)+' · '+esc(o.quantity)+' @ '+esc(o.limit_price)+' · '+esc(o.state)+(o.broker_id?' · T212 #'+esc(o.broker_id):'')+'</div>').join('')||'Žiadne DEMO objednávky')+'</div>';
+ }catch(e){$('demo-order-log').textContent='Nedá sa načítať história: '+e.message}
+}
+$('demo-desk-refresh').onclick=refreshDemoDesk;
+$('demo-catalog-load').onclick=async()=>{
+ const b=$('demo-catalog-load');b.disabled=true;$('demo-order-message').textContent='Overujem nástroje v T212 Demo…';
+ try{
+  const result=await demoPost('/api/t212/demo/catalog');
+  if(!result.ok)throw Error(result.reason||'Nedostupný katalóg');
+  const select=$('demo-ticker');
+  select.innerHTML='<option value="">Vyber ticker</option>'+result.items.map(i=>'<option value="'+esc(i.ticker)+'">'+esc(i.name)+' · '+esc(i.ticker)+' · '+esc(i.currencyCode)+'</option>').join('');
+  demoCatalogReady=true;
+  $('demo-submit-limit').disabled=false;
+  $('demo-order-message').textContent='Načítaných '+result.items.length+' akcií/ETF · Vyber ticker s menou zhodnou s účtom.';
+ }catch(e){demoCatalogReady=false;$('demo-submit-limit').disabled=true;$('demo-order-message').textContent='Katalóg: '+e.message}
+ finally{b.disabled=false}
+};
+$('demo-submit-limit').onclick=async()=>{
+ const b=$('demo-submit-limit'),ticker=$('demo-ticker').value,side=$('demo-side').value,
+  quantity=Number($('demo-qty').value),limitPrice=Number($('demo-limit-price').value);
+ if(!demoCatalogReady||!ticker||!quantity||!limitPrice){$('demo-order-message').textContent='Najprv vyber ticker, počet a limitnú cenu.';return}
+ const sum=quantity*limitPrice;
+ if(side==='BUY'&&sum>25.000001){$('demo-order-message').textContent='Nákup prekračuje 25 jednotiek meny účtu.';return}
+ if(!confirm('Odovzdať '+side+' '+quantity+' × '+ticker+' za limit '+limitPrice+' na Trading 212 DEMO? Toto je SKUTOČNÁ demo objednávka (nie SIM).'))return;
+ b.disabled=true;
+ const intentId=crypto.randomUUID();
+ $('demo-order-message').textContent='Odosielam 1× DEMO limitnú objednávku…';
+ try{
+  const result=await demoPost('/api/t212/demo/limit',{intentId,ticker,side,quantity,limitPrice});
+  $('demo-order-message').textContent=result.ok?'DEMO prijalo objednávku #'+result.brokerId+' – čakaj na vyplnenie.':
+   'Objednávka nepotvrdená: '+(result.reason||'UNKNOWN')+(result.reason==='BROKER_ORDER_UNCERTAIN_DO_NOT_RETRY'?' · Neopakovať! Over priamo v T212.':'');
+  await refreshDemoDesk();
+ }catch(e){$('demo-order-message').textContent='Nejasná odpoveď – neposielaj objednávku znova. Over T212 Demo a históriu: '+e.message}
+ finally{b.disabled=false}
+};
+refreshDemoDesk();
 $('t212-check').onclick=async()=>{
  const b=$('t212-check');b.disabled=true;$('t212-status').textContent='Overujem Demo API…';
  try{
