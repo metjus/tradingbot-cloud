@@ -123,3 +123,22 @@ test('overnight and large data gaps cannot be misread as momentum',()=>{
  assert.equal(result.signals[0].action,'HOLD');
  assert.equal(result.signals[0].reason,'NEED_3_SAMPLES');
 });
+
+test('new intraday entries use 30 minutes while existing positions retain 15-minute legacy exit',()=>{
+ const s=newRealPaper();controlPaper(s,'start',now);
+ for(let i=0;i<3;i++){const at=new Date(now.getTime()+i*5*60000),m=feed(at);m.quotes=m.quotes.map(q=>({...q,price:q.price*(1+i*.002)}));assert.equal(simulateRealStep(s,m,at).ok,true)}
+ assert.equal(s.positions.AAPL.holdMinutes,30);
+ s.positions.AAPL.holdMinutes=undefined; // persisted pre-v0.5.0 position
+ controlPaper(s,'pause',new Date(now.getTime()+11*60000));
+ const t=new Date(now.getTime()+26*60000),m=feed(t);
+ m.quotes=m.quotes.map(q=>({...q,price:q.symbol==='AAPL'?100.1:q.price*1.002}));
+ assert.equal(simulateRealStep(s,m,t).ok,true);
+ assert.equal(s.trades.find(x=>x.symbol==='AAPL')?.reason,'TIME_EXIT');
+});
+test('intraday report and decision log survive migration and remain paper-only',()=>{
+ const s=newRealPaper();delete s.decisions;
+ const p=previewPaper(s,feed(),now);
+ assert.equal(p.performance.liveApproved,false);
+ assert.equal(p.performance.verdict,'NOT_VALIDATED');
+ assert.deepEqual(p.decisions,[]);
+});
