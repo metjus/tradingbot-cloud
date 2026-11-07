@@ -2,7 +2,7 @@
 import {WATCH_SYMBOLS,quoteIsFresh,nySession} from './market.js';
 import {checkEntryProfit,checkExitProfit} from './profit-check.js';
 import {intradayReport} from './intraday-report.js';
-export const REAL_PAPER_LIMITS=Object.freeze({startingUsd:500,maxPositions:2,maxAllocationPct:25,riskPct:.5,stopPct:.8,targetPct:.6,holdMinutes:15,spreadBps:10,slippageBps:5,feeUsd:0,lossLimitPct:2,momentumThresholdPct:.25,cooldownMinutes:20});
+export const REAL_PAPER_LIMITS=Object.freeze({startingUsd:500,maxPositions:2,maxAllocationPct:25,riskPct:.5,stopPct:.8,targetPct:.6,holdMinutes:30,spreadBps:10,slippageBps:5,feeUsd:0,lossLimitPct:2,momentumThresholdPct:.25,cooldownMinutes:20});
 const round=n=>Math.round(n*1e6)/1e6;
 const isNum=n=>typeof n==='number'&&Number.isFinite(n);
 const log=(s,event,now)=>{s.events.unshift({at:now.toISOString(),event});s.events=s.events.slice(0,50)};
@@ -89,10 +89,10 @@ function signal(s,symbol,price){
  return {symbol,price,momentumPct:momentum,action:pass?'BUY':'HOLD',reason:pass?'MOMENTUM_3_POINTS':'NO_SIGNAL'};
 }
 function open(s,sym,price,now){
- // Avoid new positions late in the US session, when a 15-minute time exit could miss the close.
+ // Avoid new positions late in the US session: new 30-minute virtual trades need a safety buffer.
  const clock=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now);
  const hour=Number(clock.find(p=>p.type==='hour')?.value),minute=Number(clock.find(p=>p.type==='minute')?.value);
- if(hour*60+minute>=15*60+40)return 'SESSION_END_BUFFER';
+ if(hour*60+minute>=15*60+25)return 'SESSION_END_BUFFER';
  if(s.paused||s.halted||s.pauseRequested||sym in s.positions)return 'NOT_ALLOWED';
  if(Object.keys(s.positions).length>=REAL_PAPER_LIMITS.maxPositions)return 'POSITION_LIMIT';
  if(s.cooldowns[sym]&&now.getTime()-Date.parse(s.cooldowns[sym])<REAL_PAPER_LIMITS.cooldownMinutes*60000)return 'COOLDOWN';
@@ -108,7 +108,7 @@ function open(s,sym,price,now){
  if(!payoff.ok){log(s,'ENTRY_REJECTED '+sym+' '+payoff.reason,now);return payoff.reason;}
  // This remains exploratory paper trading; a profitable target does NOT prove positive expectancy.
  s.cash=round(s.cash-cost);
- s.positions[sym]={qty,entry:round(entry),cost,stop:round(stop),target:round(price*(1+REAL_PAPER_LIMITS.targetPct/100)),openedAt:now.toISOString(),lastMark:price,entryAssessment:payoff};
+ s.positions[sym]={qty,entry:round(entry),cost,stop:round(stop),target:round(price*(1+REAL_PAPER_LIMITS.targetPct/100)),openedAt:now.toISOString(),holdMinutes:REAL_PAPER_LIMITS.holdMinutes,lastMark:price,entryAssessment:payoff};
  log(s,'BUY '+sym+' '+qty+' @ '+entry.toFixed(2)+' USD virtual; target net '+payoff.netTargetUsd+' USD, break-even winrate '+payoff.breakEvenWinRatePct+'%',now);
  return 'OPENED';
 }
@@ -133,7 +133,7 @@ export function simulateRealStep(s,m,now=new Date()){
  for(const [sym,p] of Object.entries(s.positions)){
   const mark=prices[sym],age=now.getTime()-Date.parse(p.openedAt);
   p.lastMark=mark;
-  const reason=s.halted?'EMERGENCY_EXIT':mark<=p.stop?'STOP_LOSS':mark>=p.target?'TAKE_PROFIT':age>=REAL_PAPER_LIMITS.holdMinutes*60000?'TIME_EXIT':null;
+  const reason=s.halted?'EMERGENCY_EXIT':mark<=p.stop?'STOP_LOSS':mark>=p.target?'TAKE_PROFIT':age>=(p.holdMinutes||15)*60000?'TIME_EXIT':null;
   if(reason)close(s,sym,mark,reason,now);
  }
  if(paperEquity(s,prices)<=s.dayEquity*(1-REAL_PAPER_LIMITS.lossLimitPct/100)){
