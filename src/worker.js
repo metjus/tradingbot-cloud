@@ -69,7 +69,7 @@ async function checkRealPaper(db,market){
  }
  return {ok:false,reason:'CONCURRENT_UPDATE'};
 }
-const LOGIN_PAGE=`<!doctype html><html lang="sk"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trading Bot · Login</title><style>body{font:16px system-ui;background:#0b1120;color:#ecf2ff;display:grid;min-height:100vh;place-items:center;margin:0}form{background:#151f32;padding:30px;border:1px solid #2a3650;border-radius:18px;width:min(340px,80vw)}input,button{box-sizing:border-box;width:100%;padding:13px;margin-top:12px;border-radius:9px}input{background:#0b1120;color:white;border:1px solid #41506a}button{background:#4d77e8;color:white;border:0;font-weight:bold}small{color:#9ba9c4}#err{color:#ff8b97}</style><form id="f"><h2>Trading Bot Cloud</h2><small>Súkromný paper trading · v0.4.4</small><input type="password" name="password" placeholder="Prístupové heslo" autocomplete="current-password" required><button>Prihlásiť</button><p id="err"></p></form><script src="/login.js"></script></html>`;
+const LOGIN_PAGE=`<!doctype html><html lang="sk"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trading Bot · Login</title><style>body{font:16px system-ui;background:#0b1120;color:#ecf2ff;display:grid;min-height:100vh;place-items:center;margin:0}form{background:#151f32;padding:30px;border:1px solid #2a3650;border-radius:18px;width:min(340px,80vw)}input,button{box-sizing:border-box;width:100%;padding:13px;margin-top:12px;border-radius:9px}input{background:#0b1120;color:white;border:1px solid #41506a}button{background:#4d77e8;color:white;border:0;font-weight:bold}small{color:#9ba9c4}#err{color:#ff8b97}</style><form id="f"><h2>Trading Bot Cloud</h2><small>Súkromný paper trading · v0.5.0</small><input type="password" name="password" placeholder="Prístupové heslo" autocomplete="current-password" required><button>Prihlásiť</button><p id="err"></p></form><script src="/login.js"></script></html>`;
 export default {
   async fetch(req,env){
     try{
@@ -85,7 +85,7 @@ export default {
         if(expected!==actual)return json({message:'Invalid credentials'},401);
         const t=await createSession(env.DASHBOARD_PASSWORD);const r=json({ok:true});r.headers.append('Set-Cookie',`tb_session=${t}; Max-Age=43200; ${COOKIE_OPTIONS}`);return r;
       }
-      if(path==='/health')return json({ok:true,version:'0.4.4-profit-check'});
+      if(path==='/health')return json({ok:true,version:'0.5.0-intraday-research'});
       if(path==='/login.js'&&req.method==='GET')return new Response("document.getElementById('f').onsubmit=async e=>{e.preventDefault();let r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:e.target.password.value})});if(r.ok)location.href='/';else document.getElementById('err').textContent='Nesprávne heslo alebo chyba prihlásenia.'}",{headers:{...HEADERS,'Content-Type':'application/javascript; charset=utf-8'}});
       const authed=await authenticated(req,env.DASHBOARD_PASSWORD);
       if(!authed){if(path==='/' && req.method==='GET')return page(LOGIN_PAGE);return json({message:'Not authenticated'},401)}
