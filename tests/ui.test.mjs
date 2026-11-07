@@ -33,3 +33,8 @@ test('force update button, version marker, and cache busted client are present',
  for(const key of ['id="force-update"','id="version-check"','client.js?v=0.6.0'])assert.ok(HTML.includes(key),key);
  for(const key of ['APP_VERSION','checkVersion','force_update','location.replace','cache:\'no-store\''])assert.ok(CLIENT.includes(key),key);
 });
+
+test('Trading 212 demo order desk requires explicit manual confirmation and shows broker reconciliation',()=>{
+ for(const id of ['demo-catalog-load','demo-ticker','demo-side','demo-qty','demo-limit-price','demo-submit-limit','demo-order-log','demo-broker-overview'])assert.ok(HTML.includes(id),id);
+ for(const text of ['/api/t212/demo/catalog','/api/t212/demo/limit','/api/t212/demo/overview','confirm(','crypto.randomUUID()'])assert.ok(CLIENT.includes(text),text);
+});
