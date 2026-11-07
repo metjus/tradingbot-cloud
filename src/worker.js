@@ -183,6 +183,19 @@ export default {
         try{return json({ok:true,...await catalogDemo(env.DB,env)})}
         catch(e){console.error('Demo catalog error',String(e?.message||e));return json({ok:false,reason:'DEMO_CATALOG_UNAVAILABLE'},503)}
       }
+      if(path==='/api/t212/demo/overview'&&req.method==='GET'){
+        if(!demoConfigured(env))return json({ok:false,reason:'DEMO_KEYS_MISSING'},409);
+        try{
+          const data=await demoOverview(env);
+          return json({ok:true,account:data.account,positions:data.positions.slice(0,60).map(p=>({
+            ticker:String(p.instrument?.ticker||'').slice(0,65),quantity:p.quantity,
+            quantityAvailableForTrading:p.quantityAvailableForTrading,
+            currentPrice:p.currentPrice
+          })),pending:data.pending.slice(0,60).map(p=>({
+            id:p.id,ticker:p.ticker,side:p.side,status:p.status,quantity:p.quantity,limitPrice:p.limitPrice
+          }))});
+        }catch(e){console.error('Demo overview error',String(e?.message||e));return json({ok:false,reason:'DEMO_OVERVIEW_UNAVAILABLE'},503)}
+      }
       if(path==='/api/t212/demo/desk'&&req.method==='GET'){
         return json({ok:true,...await demoDeskState(env.DB)});
       }
@@ -190,8 +203,10 @@ export default {
         if(!sameOrigin(req))return json({message:'Origin mismatch'},403);
         const input=await req.json().catch(()=>null);
         if(!input||typeof input!=='object'||Array.isArray(input))return json({reason:'INVALID_INPUT'},400);
-        const result=await placeDemoLimit(env.DB,env,input);
-        return json(result,result.ok?200:409);
+        try{
+          const result=await placeDemoLimit(env.DB,env,input);
+          return json(result,result.ok?200:409);
+        }catch(e){console.error('Demo order preflight error',String(e?.message||e));return json({ok:false,reason:'DEMO_PREFLIGHT_FAILED_NO_ORDER_CONFIRMED'},503)}
       }
       // Manual Demo API reading and manual limit-order testing only. No automated broker orders.
       if(path==='/api/t212/demo'&&req.method==='POST'){
