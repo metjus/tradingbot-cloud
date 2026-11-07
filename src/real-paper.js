@@ -1,11 +1,12 @@
 // Isolated USD paper account using observed market prices. NO broker integration.
 import {WATCH_SYMBOLS,quoteIsFresh,nySession} from './market.js';
 import {checkEntryProfit,checkExitProfit} from './profit-check.js';
+import {intradayReport} from './intraday-report.js';
 export const REAL_PAPER_LIMITS=Object.freeze({startingUsd:500,maxPositions:2,maxAllocationPct:25,riskPct:.5,stopPct:.8,targetPct:.6,holdMinutes:15,spreadBps:10,slippageBps:5,feeUsd:0,lossLimitPct:2,momentumThresholdPct:.25,cooldownMinutes:20});
 const round=n=>Math.round(n*1e6)/1e6;
 const isNum=n=>typeof n==='number'&&Number.isFinite(n);
 const log=(s,event,now)=>{s.events.unshift({at:now.toISOString(),event});s.events=s.events.slice(0,50)};
-export const newRealPaper=()=>({currency:'USD',initial:500,cash:500,positions:{},trades:[],events:[],lastSnapshotAt:null,lastQuotes:{},lastQuoteTimestamps:{},samples:{},halted:false,paused:true,pauseRequested:false,createdAt:new Date().toISOString(),day:null,dayEquity:500,cooldowns:{}});
+export const newRealPaper=()=>({currency:'USD',initial:500,cash:500,positions:{},trades:[],events:[],lastSnapshotAt:null,lastQuotes:{},lastQuoteTimestamps:{},samples:{},halted:false,paused:true,pauseRequested:false,createdAt:new Date().toISOString(),day:null,dayEquity:500,cooldowns:{},decisions:[]});
 export function migratePaper(s){
  if(!s.samples||typeof s.samples!=='object')s.samples={};
  if(!s.cooldowns||typeof s.cooldowns!=='object')s.cooldowns={};
@@ -13,6 +14,7 @@ export function migratePaper(s){
  if(!s.lastQuoteTimestamps||typeof s.lastQuoteTimestamps!=='object')s.lastQuoteTimestamps={};
  if(!Array.isArray(s.trades))s.trades=[];
  if(!Array.isArray(s.events))s.events=[];
+ if(!Array.isArray(s.decisions))s.decisions=[];
  if(!isNum(s.dayEquity))s.dayEquity=s.initial;
  if(typeof s.paused!=='boolean')s.paused=true;
  if(typeof s.pauseRequested!=='boolean')s.pauseRequested=false;
@@ -151,6 +153,12 @@ export function simulateRealStep(s,m,now=new Date()){
    sig.result=result;
   }
  }
+ // Persist the actual decision and reject reason, without inventing a probability of profit.
+ for(const sig of signals){
+  const outcome=sig.action==='BUY'?(sig.result||'NOT_EXECUTED'):sig.reason;
+  s.decisions.unshift({at:now.toISOString(),symbol:sig.symbol,price:sig.price,signal:sig.action,outcome,momentumPct:sig.momentumPct??null});
+ }
+ s.decisions=s.decisions.slice(0,300);
  if(s.pauseRequested&&Object.keys(s.positions).length===0){s.pauseRequested=false;log(s,'ALL_POSITIONS_DRAINED',now)}
  s.lastQuotes={...prices};s.lastQuoteTimestamps=Object.fromEntries(m.quotes.map(q=>[q.symbol,q.timestamp]));s.lastSnapshotAt=m.updatedAt;
  validatePaper(s);
@@ -167,5 +175,6 @@ export function previewPaper(s,m,now=new Date()){
   positions:Object.entries(s.positions).map(([symbol,p])=>({symbol,qty:p.qty,entry:p.entry,mark:markedPx(s,symbol,prices),openedAt:p.openedAt,stop:p.stop,target:p.target,entryAssessment:p.entryAssessment||null})),
   trades:trades.slice(0,20),tradeCount:trades.length,profitFactor:loss?round(profit/loss):profit?'BEZ_STRAT':'NEDOSTATOK_DAT',
   events:s.events.slice(0,15),canCheck:gate.ok,reason:gate.ok?'FEED_OK':gate.reason,paused:s.paused,halted:s.halted,pauseRequested:!!s.pauseRequested,
-  lastSnapshotAt:s.lastSnapshotAt,assumptions:REAL_PAPER_LIMITS};
+  lastSnapshotAt:s.lastSnapshotAt,assumptions:REAL_PAPER_LIMITS,
+  performance:intradayReport(trades,Object.entries(s.positions),s.initial),decisions:s.decisions.slice(0,25)};
 }
