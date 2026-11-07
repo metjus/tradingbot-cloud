@@ -30,7 +30,7 @@ test('Demo instruments curated by exact platform ticker and eligible stock/ETF n
   {ticker:'BTC_EQ',name:'Bitcoin',type:'CRYPTO',currencyCode:'USD'}
  ]);
  assert.equal(items.length,2);
- assert.deepEqual(items.map(x=>x.ticker),['AAPL_US_EQ','CSPX_L_EQ']);
+ assert.deepEqual(items.map(x=>x.ticker),['CSPX_L_EQ','AAPL_US_EQ']);
 });
 test('Demo API refuses credentials missing and permits only the DEMO host',async()=>{
  await assert.rejects(demoRequest({},'/equity/orders',{},async()=>{throw Error('should never call')}),/DEMO_KEYS_MISSING/);
