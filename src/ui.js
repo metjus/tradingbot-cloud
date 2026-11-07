@@ -16,7 +16,7 @@ export const HTML = `<!doctype html><html lang="sk"><head><meta charset="utf-8">
 <label class="stat">Limitná cena (mena nástroja)<input id="demo-limit-price" type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" placeholder="100.00" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"></label>
 </div>
 <div class="actions"><button id="demo-submit-limit" type="button" disabled>Potvrdiť DEMO limitnú objednávku</button></div>
-<div id="demo-order-message" role="status" class="sub"></div><div id="demo-order-log" class="sub" style="margin-top:10px"></div>
+<div id="demo-order-message" role="status" class="sub"></div><div id="demo-broker-overview" class="sub" style="margin-top:10px"></div><div id="demo-order-log" class="sub" style="margin-top:10px"></div>
 <small>Objednávka môže zostať čakajúca alebo sa nevyplniť. Ak API odpovie nejasne, bot ju automaticky neopakuje. Stav musíš skontrolovať v Trading 212 Demo.</small>
 </div><small>Samostatné DEMO prostredie. Iba čítanie údajov, bez zadávania objednávok. Syntetický bot zostáva nezmenený.</small></section>
 <section class="panel"><h2>Skutočný trh – iba sledovanie</h2><div class="sub" id="market-status">Načítavam zdroj cien…</div><div id="market-diagnostics" class="sub" style="margin-top:9px"></div><div id="market-quotes" style="margin-top:12px"></div><small>Reálne ceny sú v USD. Kým nevyriešime FX, spread a aktuálnosť feedu, tieto ceny NEOVPLYVŇUJÚ simulované obchody.</small></section>
@@ -202,7 +202,23 @@ async function refreshDemoDesk(){
   $('demo-order-log').innerHTML='<b>Posledné odoslania DEMO</b><div>'+((data.orders||[]).map(o=>'<div style="padding:6px 0;border-bottom:1px solid #2b3953">'+esc(o.side)+' '+esc(o.ticker)+' · '+esc(o.quantity)+' @ '+esc(o.limit_price)+' · '+esc(o.state)+(o.broker_id?' · T212 #'+esc(o.broker_id):'')+'</div>').join('')||'Žiadne DEMO objednávky')+'</div>';
  }catch(e){$('demo-order-log').textContent='Nedá sa načítať história: '+e.message}
 }
-$('demo-desk-refresh').onclick=refreshDemoDesk;
+async function refreshBrokerOverview(){
+ try{
+  const r=await fetch('/api/t212/demo/overview',{cache:'no-store'});
+  const d=await r.json();
+  if(!d.ok)throw Error(d.reason||'DEMO_UNAVAILABLE');
+  demoCurrency=d.account.currency||'';
+  $('demo-broker-overview').innerHTML='<b>Trading 212 DEMO účet</b><div>Hlavná mena: '+esc(demoCurrency)+' · hotovosť: '+Number(d.account.availableToTrade).toFixed(2)+' '+esc(demoCurrency)+'</div>'+
+   '<div>Broker pozície: '+(d.positions||[]).length+' · čakajúce objednávky: '+(d.pending||[]).length+'</div>'+
+   (d.positions||[]).slice(0,6).map(p=>'<div style="padding:5px 0">'+esc(p.ticker)+' · '+Number(p.quantity).toFixed(4)+' ks · aktuálna cena '+Number(p.currentPrice).toFixed(2)+'</div>').join('')+
+   (d.pending||[]).slice(0,6).map(p=>'<div style="padding:5px 0;color:#ffbd7c">Čaká: '+esc(p.side)+' '+esc(p.ticker)+' · '+esc(p.status)+'</div>').join('');
+ }catch(e){$('demo-broker-overview').textContent='Broker dáta sa nedajú načítať: '+e.message}
+}
+$('demo-desk-refresh').onclick=async()=>{
+ $('demo-desk-refresh').disabled=true;
+ try{await refreshBrokerOverview();await refreshDemoDesk()}
+ finally{$('demo-desk-refresh').disabled=false}
+};
 $('demo-catalog-load').onclick=async()=>{
  const b=$('demo-catalog-load');b.disabled=true;$('demo-order-message').textContent='Overujem nástroje v T212 Demo…';
  try{
