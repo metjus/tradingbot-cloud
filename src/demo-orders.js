@@ -44,7 +44,14 @@ export function selectDemoInstruments(raw){
   ['STOCK','ETF'].includes(x.type)&&/^[A-Z]{3}$/.test(x.currencyCode||'')&&
   ((x.type==='STOCK'&&/(^|[^a-z])(apple|microsoft|nvidia)([^a-z]|$)/i.test(x.name))||
    (x.type==='ETF'&&/s&p.?500|nasdaq.?100|msci.world|physical.gold|gold.et[cfn]/i.test(x.name))));
- return matching.slice(0,90).map(x=>({ticker:x.ticker,name:x.name.slice(0,100),currencyCode:x.currencyCode,type:x.type}));
+ // Keep a balanced currency sample, otherwise USD listings may hide all EUR alternatives.
+ const seen=new Set(),balanced=[];
+ for(const currency of ['EUR','USD','GBP']){
+  for(const item of matching.filter(x=>x.currencyCode===currency).slice(0,30)){
+   if(!seen.has(item.ticker)){seen.add(item.ticker);balanced.push(item)}
+  }
+ }
+ return balanced.map(x=>({ticker:x.ticker,name:x.name.slice(0,100),currencyCode:x.currencyCode,type:x.type}));
 }
 export async function demoOverview(env,fetcher=fetch){
  const [summary,positions,pending]=await Promise.all([
