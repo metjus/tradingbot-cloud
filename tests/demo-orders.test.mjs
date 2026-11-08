@@ -47,3 +47,14 @@ test('Broker account precheck reads summary positions and pending orders',async(
  assert.equal(result.account.currency,'EUR');
  assert.deepEqual(result.positions,[]);assert.deepEqual(result.pending,[]);
 });
+
+test('Trading212 lowercase exchange venue suffix is valid when ticker is broker-verified',()=>{
+ const london={ticker:'XWLDl_EQ',name:'Xtrackers MSCI World',type:'ETF',currencyCode:'EUR'};
+ const order={ticker:'XWLDl_EQ',side:'BUY',quantity:.1,limitPrice:100};
+ const valid=validateDemoOrder(order,{catalog:[london],account:{currency:'EUR',availableToTrade:500}});
+ assert.equal(valid.ok,true);
+ assert.equal(valid.ticker,'XWLDl_EQ');
+ assert.equal(validateDemoOrder({...order,ticker:'XWLDL_EQ'},{catalog:[london],account:{currency:'EUR',availableToTrade:500}}).reason,'TICKER_NOT_IN_VERIFIED_CATALOG');
+ assert.equal(validateDemoOrder({...order,ticker:'XWLDl_EQ;DROP'},{catalog:[london],account:{currency:'EUR',availableToTrade:500}}).reason,'INVALID_TICKER_FORMAT');
+ assert.equal(validateDemoOrder({...order,side:'HOLD'},{catalog:[london],account:{currency:'EUR',availableToTrade:500}}).reason,'INVALID_SIDE');
+});
