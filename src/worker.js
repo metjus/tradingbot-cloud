@@ -48,6 +48,7 @@ async function actionRealPaper(db,action){
  for(let attempt=0;attempt<5;attempt++){
   const {revision,state}=await getRealPaper(db);
   validatePaper(state);
+  if(action==='start')return {ok:false,reason:'LEGACY_MODE_ARCHIVED'};
   const out=controlPaper(state,action);
   if(!out.ok)return out;
   const encoded=JSON.stringify(state);let result;
@@ -61,6 +62,7 @@ async function checkRealPaper(db,market){
  await ensureRealPaper(db);
  for(let attempt=0;attempt<5;attempt++){
   const {revision,state}=await getRealPaper(db);
+  state.paused=true; // Legacy USD paper: prohibit new entries; existing positions may drain on valid prices.
   const out=simulateRealStep(state,market);
   if(!out.ok)return {ok:false,reason:out.reason};
   const json=JSON.stringify(state);let result;
@@ -217,6 +219,7 @@ export default {
         if(!sameOrigin(req))return json({message:'Origin mismatch'},403);
         let body=await req.json().catch(()=>null),action=body?.action;
         if(!['start','pause','stop','reset'].includes(action))return json({message:'Unknown action'},400);
+        if(action==='start')return json({ok:false,reason:'LEGACY_MODE_ARCHIVED'},409);
         const result=await mutate(env.DB,s=>act(s,action));return json(result,result.ok?200:409);
       }
       return json({message:'Not found'},404);
@@ -226,7 +229,12 @@ export default {
     ctx.waitUntil((async()=>{
       if(!env.DB)return;
       // No updates when completely inactive, to avoid unnecessary D1 writes.
-      const r=await mutate(env.DB,s=>{if(s.running||s.pause_requested||Object.keys(s.positions).length>0)step(s);return {ok:true}});
+      const r=await mutate(env.DB,s=>{
+        // Legacy synthetic: block further entries, but preserve existing positions and history.
+        if(s.running){s.running=false;s.pause_requested=Object.keys(s.positions).length>0}
+        if(s.pause_requested||Object.keys(s.positions).length>0)step(s);
+        return {ok:true};
+      });
       if(!r.ok)console.error('Scheduled tick retry exhausted');
       // Market watch runs only every five minutes during the NY regular session.
       // Its data is observational, never fed into the synthetic execution engine.
