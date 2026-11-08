@@ -56,3 +56,13 @@ test('Slovak decimal comma accepted for iPhone demo quantity and price',()=>{
  assert.ok(Number.isNaN(fn('abc')));
  assert.ok(Number.isNaN(fn('')));
 });
+
+test('Trading 212 Demo panel is primary and legacy simulators are archived',()=>{
+ const demo=HTML.indexOf('Trading 212 · Demo účet');
+ const legacy=HTML.indexOf('<details id="legacy-archive"');
+ assert.ok(demo>=0&&legacy>demo);
+ assert.ok(HTML.includes('TRADING 212 · DEMO ONLY'));
+ assert.ok(HTML.includes('SIM a USD paper účty sú archivované'));
+ assert.ok(HTML.includes('<summary'));
+ assert.ok(HTML.includes('id="demo-submit-limit"'));
+});
