@@ -6,7 +6,7 @@ test('dashboard browser JavaScript parses',()=>{
   assert.doesNotThrow(()=>new vm.Script(CLIENT));
 });
 test('dashboard shows new risk and mobile controls',()=>{
-  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.6.0'])assert.ok(HTML.includes(key),key);
+  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.6.1'])assert.ok(HTML.includes(key),key);
 });
 
 test('equity chart exposes intervals, readout, and local time-axis',()=>{
@@ -30,11 +30,29 @@ test('USD paper controls are independent of synthetic controls',()=>{
 });
 
 test('force update button, version marker, and cache busted client are present',()=>{
- for(const key of ['id="force-update"','id="version-check"','client.js?v=0.6.0'])assert.ok(HTML.includes(key),key);
+ for(const key of ['id="force-update"','id="version-check"','client.js?v=0.6.1'])assert.ok(HTML.includes(key),key);
  for(const key of ['APP_VERSION','checkVersion','force_update','location.replace','cache:\'no-store\''])assert.ok(CLIENT.includes(key),key);
 });
 
 test('Trading 212 demo order desk requires explicit manual confirmation and shows broker reconciliation',()=>{
  for(const id of ['demo-catalog-load','demo-ticker','demo-side','demo-qty','demo-limit-price','demo-submit-limit','demo-order-log','demo-broker-overview'])assert.ok(HTML.includes(id),id);
  for(const text of ['/api/t212/demo/catalog','/api/t212/demo/limit','/api/t212/demo/overview','confirm(','crypto.randomUUID()'])assert.ok(CLIENT.includes(text),text);
+});
+
+test('Slovak decimal comma accepted for iPhone demo quantity and price',()=>{
+ assert.ok(HTML.includes('id="demo-qty" type="text" inputmode="decimal"'));
+ assert.ok(HTML.includes('id="demo-limit-price" type="text" inputmode="decimal"'));
+ assert.ok(CLIENT.includes("function parseDemoDecimal(raw)"));
+ assert.ok(CLIENT.includes("quantity=parseDemoDecimal($('demo-qty').value)"));
+ assert.ok(CLIENT.includes("limitPrice=parseDemoDecimal($('demo-limit-price').value)"));
+ const parser=CLIENT.match(/function parseDemoDecimal\(raw\)\{[\s\S]*?\n\}/)?.[0];
+ assert.ok(parser);
+ const fn=new Function(parser+'; return parseDemoDecimal;')();
+ assert.equal(fn('0,1'),0.1);
+ assert.equal(fn('0.1'),0.1);
+ assert.equal(fn('12,50'),12.5);
+ assert.equal(fn('02'),2);
+ assert.ok(Number.isNaN(fn('1,2,3')));
+ assert.ok(Number.isNaN(fn('abc')));
+ assert.ok(Number.isNaN(fn('')));
 });
