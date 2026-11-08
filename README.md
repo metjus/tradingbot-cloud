@@ -179,3 +179,10 @@ Monitor the GitHub Actions test/deploy result and check the new panel in the mob
 - Every order reserves a **unique D1 intent ID** before calling the non-idempotent broker API. No retries under any error. Uncertain sends remain flagged and block further orders until manually reconciled; do not submit again blindly.
 - The broker may **accept** but not **fill** a limit order. Use **Skontrolovať objednávky** and verify your Trading 212 DEMO app before further trades.
 - The USD price-paper simulator is **independent** and does not automatically send its signals to Trading 212. This is deliberate for the initial broker end-to-end validation.
+
+## v0.6.2 — DEMO-first dashboard and simulation archive
+- Primary dashboard contains the connected Trading 212 DEMO account, manually confirmed demo limit orders, broker positions/pending orders, and order history.
+- Original SIM and USD price-paper panels are collapsed in a separate **Archív pôvodných simulátorov** for historical inspection only; D1 history and balances have not been erased.
+- New order entry through legacy synthetic and USD paper routes is denied by the Worker (LEGACY_MODE_ARCHIVED). Scheduled processing disables new synthetic/market-paper entries but allows already-open legacy virtual positions to reach their ordinary exit conditions on the applicable updates.
+- Trading 212 DEMO order book is independent. Existing manual Demo order journal and 25/100 budget limits are untouched. No Live broker orders or unattended Demo orders have been enabled.
+- To verify: v0.6.2, T212 demo account and controls visible first, legacy archive collapsed, Force Update working, historical data preserved.
