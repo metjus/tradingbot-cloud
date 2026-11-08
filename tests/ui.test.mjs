@@ -6,7 +6,7 @@ test('dashboard browser JavaScript parses',()=>{
   assert.doesNotThrow(()=>new vm.Script(CLIENT));
 });
 test('dashboard shows new risk and mobile controls',()=>{
-  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.6.2'])assert.ok(HTML.includes(key),key);
+  for(const key of ['id="risk"','id="stats"','Zostáva','risk-meter','v0.6.3'])assert.ok(HTML.includes(key),key);
 });
 
 test('equity chart exposes intervals, readout, and local time-axis',()=>{
@@ -30,7 +30,7 @@ test('USD paper controls are independent of synthetic controls',()=>{
 });
 
 test('force update button, version marker, and cache busted client are present',()=>{
- for(const key of ['id="force-update"','id="version-check"','client.js?v=0.6.2'])assert.ok(HTML.includes(key),key);
+ for(const key of ['id="force-update"','id="version-check"','client.js?v=0.6.3'])assert.ok(HTML.includes(key),key);
  for(const key of ['APP_VERSION','checkVersion','force_update','location.replace','cache:\'no-store\''])assert.ok(CLIENT.includes(key),key);
 });
 
@@ -65,4 +65,9 @@ test('Trading 212 Demo panel is primary and legacy simulators are archived',()=>
  assert.ok(HTML.includes('SIM a USD paper účty sú archivované'));
  assert.ok(HTML.includes('<summary'));
  assert.ok(HTML.includes('id="demo-submit-limit"'));
+});
+
+test('Demo order form reports exact reason for ticker/currency rejection',()=>{
+ for(const reason of ['INVALID_TICKER_FORMAT','TICKER_NOT_IN_VERIFIED_CATALOG','ACCOUNT_CURRENCY_MISMATCH','INVALID_SIZE_OR_PRICE'])assert.ok(CLIENT.includes(reason),reason);
+ assert.ok(CLIENT.includes('demoOrderErrorMessage(result.reason)'));
 });
