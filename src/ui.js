@@ -243,6 +243,27 @@ $('demo-catalog-load').onclick=async()=>{
  }catch(e){demoCatalogReady=false;$('demo-submit-limit').disabled=true;$('demo-order-message').textContent='Katalóg: '+e.message}
  finally{b.disabled=false}
 };
+function demoOrderErrorMessage(reason){
+ const errors={
+  INVALID_SIDE:'Neplatný smer objednávky. Vyber BUY alebo SELL.',
+  INVALID_TICKER_FORMAT:'Ticker obsahuje nepodporovaný znak alebo má nesprávny formát.',
+  TICKER_NOT_IN_VERIFIED_CATALOG:'Ticker už nie je v overenom zozname. Znovu načítaj dostupné nástroje.',
+  ACCOUNT_CURRENCY_MISMATCH:'Mena nástroja sa nezhoduje s hlavnou menou Demo účtu.',
+  INVALID_SIZE_OR_PRICE:'Skontroluj počet kusov (max. 4 desatinné miesta) a limitnú cenu.',
+  ORDER_CAP_25:'Nákup prekračuje limit 25 jednotiek meny účtu.',
+  LIFETIME_TEST_BUDGET_100:'Dosiahnutý celkový testovací limit 100 jednotiek meny účtu.',
+  INSUFFICIENT_DEMO_CASH:'Na Demo účte nie je dostatok dostupnej hotovosti.',
+  REFRESH_INSTRUMENT_CATALOG:'Katalóg vypršal. Znovu klikni Načítať dostupné nástroje.',
+  UNRESOLVED_PREVIOUS_ORDER:'Predchádzajúcu objednávku treba overiť v T212 Demo. Neopakuj ju.',
+  PENDING_BROKER_ORDERS_RECONCILE_FIRST:'V T212 už čaká objednávka. Over ju pred ďalším nákupom.',
+  BROKER_ORDER_UNCERTAIN_DO_NOT_RETRY:'Nejasný stav objednávky. Neposielaj ju znovu a over ju priamo v T212.',
+  DUPLICATE_OR_CONCURRENT_OR_BUDGET_LIMIT:'Duplicitná alebo súbežná požiadavka, prípadne prekročený limit. Pozri históriu.',
+  DEMO_PREFLIGHT_FAILED_NO_ORDER_CONFIRMED:'Kontrola objednávky zlyhala. Pozri stav v T212 Demo.',
+  SELL_EXCEEDS_TRACKED_BUYS:'Predaj prekračuje množstvo kúpené cez tento testovací panel.',
+  SELL_EXCEEDS_BROKER_POSITION:'Predaj prekračuje dostupnú pozíciu u brokera.'
+ };
+ return errors[reason]||('T212 Demo odmietlo požiadavku: '+String(reason||'NEZNÁMA_CHYBA'));
+}
 $('demo-submit-limit').onclick=async()=>{
  const b=$('demo-submit-limit'),ticker=$('demo-ticker').value,side=$('demo-side').value,
   quantity=parseDemoDecimal($('demo-qty').value),limitPrice=parseDemoDecimal($('demo-limit-price').value);
@@ -256,7 +277,7 @@ $('demo-submit-limit').onclick=async()=>{
  try{
   const result=await demoPost('/api/t212/demo/limit',{intentId,ticker,side,quantity,limitPrice});
   $('demo-order-message').textContent=result.ok?'DEMO prijalo objednávku #'+result.brokerId+' – čakaj na vyplnenie.':
-   'Objednávka nepotvrdená: '+(result.reason||'UNKNOWN')+(result.reason==='BROKER_ORDER_UNCERTAIN_DO_NOT_RETRY'?' · Neopakovať! Over priamo v T212.':'');
+   demoOrderErrorMessage(result.reason);
   await refreshDemoDesk();
  }catch(e){$('demo-order-message').textContent='Nejasná odpoveď – neposielaj objednávku znova. Over T212 Demo a históriu: '+e.message}
  finally{b.disabled=false}
