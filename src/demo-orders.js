@@ -7,7 +7,10 @@ const rounded=n=>Math.round(n*1e6)/1e6;
 export const configured=env=>Boolean(env.T212_DEMO_API_KEY&&env.T212_DEMO_API_SECRET);
 export function validateDemoOrder(input,{catalog=[],account=null,positions=[],priorBought=0,availableToSell=0}={}){
  const {ticker,side,quantity,limitPrice}=input||{};
- if(!['BUY','SELL'].includes(side)||typeof ticker!=='string'||!/^[A-Z0-9_.-]{2,45}$/.test(ticker))return {ok:false,reason:'INVALID_ORDER'};
+ if(!['BUY','SELL'].includes(side))return {ok:false,reason:'INVALID_SIDE'};
+ if(typeof ticker!=='string'||ticker.length<2||ticker.length>65||!/^[A-Za-z0-9_.-]+$/.test(ticker))return {ok:false,reason:'INVALID_TICKER_FORMAT'};
+ // T212 uses case-sensitive venue suffixes (e.g. lowercase 'l' for London).
+ // The exact ticker must also exist in the broker-fetched allowlisted catalog below.
  if(!finite(quantity)||!finite(limitPrice)||quantity<=0||quantity>DEMO_LIMITS.maxQuantity||
   limitPrice<=0||limitPrice>DEMO_LIMITS.limitPriceMax||
   Math.abs(quantity*10000-Math.round(quantity*10000))>1e-7)return {ok:false,reason:'INVALID_SIZE_OR_PRICE'};
