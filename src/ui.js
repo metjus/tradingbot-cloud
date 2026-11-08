@@ -12,8 +12,8 @@ export const HTML = `<!doctype html><html lang="sk"><head><meta charset="utf-8">
 <div class="stat-grid">
 <label class="stat">Ticker<select id="demo-ticker" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"><option value="">Najprv načítaj nástroje</option></select></label>
 <label class="stat">Smer<select id="demo-side" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"><option value="BUY">BUY – nákup</option><option value="SELL">SELL – predaj</option></select></label>
-<label class="stat">Počet kusov<input id="demo-qty" type="number" min="0.0001" max="100" step="0.0001" inputmode="decimal" placeholder="0.1" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"></label>
-<label class="stat">Limitná cena (mena nástroja)<input id="demo-limit-price" type="number" min="0.01" max="100000" step="0.01" inputmode="decimal" placeholder="100.00" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"></label>
+<label class="stat">Počet kusov<input id="demo-qty" type="text" inputmode="decimal" autocomplete="off" placeholder="0,1" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"></label>
+<label class="stat">Limitná cena (mena nástroja)<input id="demo-limit-price" type="text" inputmode="decimal" autocomplete="off" placeholder="100,00" style="display:block;width:100%;padding:10px;margin-top:7px;background:#0b1120;border:1px solid #41506a;border-radius:7px;color:white"></label>
 </div>
 <div class="actions"><button id="demo-submit-limit" type="button" disabled>Potvrdiť DEMO limitnú objednávku</button></div>
 <div id="demo-order-message" role="status" class="sub"></div><div id="demo-broker-overview" class="sub" style="margin-top:10px"></div><div id="demo-order-log" class="sub" style="margin-top:10px"></div>
@@ -189,6 +189,12 @@ $('market-paper-check').onclick=async()=>{
  }catch(e){$('market-paper-signals').textContent='Chyba: '+e.message}
  finally{b.disabled=false}
 };
+// Slovak iOS decimal keyboard uses comma. Keep text inputs until final validation.
+function parseDemoDecimal(raw){
+ const text=String(raw??'').trim().replace(',', '.');
+ if(!/^(?:[0-9]+(?:[.][0-9]*)?|[.][0-9]+)$/.test(text))return NaN;
+ return Number(text);
+}
 let demoCurrency='',demoCatalogReady=false;
 const demoPost=async (url,body={})=>{
  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
@@ -234,8 +240,8 @@ $('demo-catalog-load').onclick=async()=>{
 };
 $('demo-submit-limit').onclick=async()=>{
  const b=$('demo-submit-limit'),ticker=$('demo-ticker').value,side=$('demo-side').value,
-  quantity=Number($('demo-qty').value),limitPrice=Number($('demo-limit-price').value);
- if(!demoCatalogReady||!ticker||!quantity||!limitPrice){$('demo-order-message').textContent='Najprv vyber ticker, počet a limitnú cenu.';return}
+  quantity=parseDemoDecimal($('demo-qty').value),limitPrice=parseDemoDecimal($('demo-limit-price').value);
+ if(!demoCatalogReady||!ticker||!Number.isFinite(quantity)||!Number.isFinite(limitPrice)||quantity<=0||limitPrice<=0){$('demo-order-message').textContent='Vyber ticker a zadaj kladné čísla. Môžeš použiť čiarku aj bodku (napr. 0,1).';return}
  const sum=quantity*limitPrice;
  if(side==='BUY'&&sum>25.000001){$('demo-order-message').textContent='Nákup prekračuje 25 jednotiek meny účtu.';return}
  if(!confirm('Odovzdať '+side+' '+quantity+' × '+ticker+' za limit '+limitPrice+' na Trading 212 DEMO? Toto je SKUTOČNÁ demo objednávka (nie SIM).'))return;
