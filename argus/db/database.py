@@ -86,13 +86,18 @@ class Database:
         ]
         if not rows:
             return 0
-        stmt = sqlite_insert(CandleRow).values(rows)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[CandleRow.symbol, CandleRow.timeframe, CandleRow.ts],
-            set_={k: stmt.excluded[k] for k in ("open", "high", "low", "close", "volume", "source")},
-        )
+        # SQLite caps bound variables per statement -> insert in chunks
+        chunk = 500
         with self.session() as s:
-            s.execute(stmt)
+            for i in range(0, len(rows), chunk):
+                batch = rows[i:i + chunk]
+                stmt = sqlite_insert(CandleRow).values(batch)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=[CandleRow.symbol, CandleRow.timeframe, CandleRow.ts],
+                    set_={k: stmt.excluded[k]
+                          for k in ("open", "high", "low", "close", "volume", "source")},
+                )
+                s.execute(stmt)
             s.commit()
         return len(rows)
 

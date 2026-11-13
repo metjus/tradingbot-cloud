@@ -62,10 +62,14 @@ class DecisionResult:
 
 class DecisionEngine:
     def __init__(self, risk: RiskSupervisor, strategies: list[Strategy] | None = None,
-                 enter_threshold: float = 70.0) -> None:
+                 enter_threshold: float = 70.0, ml_scorer=None, selector=None) -> None:
         self.risk = risk
         self.strategies = strategies if strategies is not None else ALL_STRATEGIES
         self.enter_threshold = enter_threshold
+        #: optional SetupScorer (argus.ml.model); adds a -20..+20 adjustment
+        self.ml_scorer = ml_scorer
+        #: optional StrategySelector; disabled strategies are skipped
+        self.selector = selector
 
     # --- scoring ----------------------------------------------------------
     def score(self, sig: Signal, ctx: MarketContext) -> ScoredSignal:
@@ -124,6 +128,17 @@ class DecisionEngine:
         if ctx.spread_pct is not None:
             f["spread_penalty"] = -min(10.0, ctx.spread_pct * 40.0)
 
+        # ML setup scorer: P(TP before SL) mapped to -20..+20 around p=0.5.
+        # Absent or failing model = 0 (engine fully functional without ML).
+        if self.ml_scorer is not None:
+            f5s = ctx.f(M5)
+            if f5s is not None:
+                try:
+                    p = self.ml_scorer.score_live(sig, ctx.regime, f5s.as_dict(), ctx.now_ts)
+                    f["ml_probability"] = (max(0.0, min(1.0, p)) - 0.5) * 40.0
+                except Exception as exc:
+                    log.warning("ml scorer failed, ignoring: %s", exc)
+
         total = max(0.0, min(100.0, sum(f.values())))
         return ScoredSignal(signal=sig, score=total, factors=f)
 
@@ -133,6 +148,8 @@ class DecisionEngine:
         res = DecisionResult(symbol=ctx.symbol, regime=ctx.regime, verdict="no_signal")
 
         for strat in self.strategies:
+            if self.selector is not None and not self.selector.is_enabled(strat.name):
+                continue
             try:
                 sig = strat.evaluate(ctx)
             except Exception as exc:  # a broken strategy must never kill the engine

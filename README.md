@@ -15,7 +15,22 @@ mobilný dashboard a adaptívne machine learning jadro.
 | 2 | Vizuálny koncept ARGUS (identita, dizajnový systém, návrhy UI) | Hotovo – `docs/FAZA-2-vizualny-koncept.md`, `design/tokens.json` |
 | 3 | Základ enginu: market data, DB, monitoring, lokálne API | Hotovo – tento balík (`argus/`) |
 | 4 | Trading engine: indikátory, 8 stratégií, Decision Engine, Risk Supervisor (signal-only) | Hotovo |
-| 5+ | ML, news, backtesting, paper/live, cloud, mobil | Nasleduje |
+| 5 | ML: backtest jadro, setup-scorer s walk-forward validáciou, registry modelov s rollbackom, adaptívny výber stratégií | Hotovo |
+| 6+ | News intelligence, kompletný backtesting, paper/live, cloud, mobil | Nasleduje |
+
+### ML pipeline
+
+```bash
+.venv/bin/python -m argus.ml --symbols "BTC/USD,ETH/USD" --days 60   # tréning + validácia
+.venv/bin/python -m argus.ml --list                                   # registry modelov
+.venv/bin/python -m argus.ml --activate 3                             # vedomá aktivácia verzie
+.venv/bin/python -m argus.ml --rollback                               # návrat na predošlú verziu
+```
+
+Kandidát sa nikdy neaktivuje automaticky: musí prejsť walk-forward bránami
+(min. vzorka, priemerné AUC, žiadny fold pod 0.5) a aktivácia je samostatný
+krok. Engine načíta aktívny model pri štarte; bez modelu beží plnohodnotne
+ďalej (ML faktor = 0).
 
 ## Spustenie enginu (vývoj)
 

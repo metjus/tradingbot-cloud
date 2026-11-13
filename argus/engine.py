@@ -51,7 +51,13 @@ class Engine:
             max_daily_trades=settings.max_daily_trades,
         )
         self.risk = RiskSupervisor(limits)
-        self.decision_engine = DecisionEngine(self.risk, enter_threshold=settings.enter_threshold)
+        from .ml.registry import ModelRegistry
+        self.registry = ModelRegistry(self.db, settings.data_dir / "models")
+        ml_scorer = self.registry.load_active("setup-scorer")
+        if ml_scorer is not None:
+            log.info("loaded active ML model setup-scorer v%s", ml_scorer.meta.version)
+        self.decision_engine = DecisionEngine(self.risk, enter_threshold=settings.enter_threshold,
+                                              ml_scorer=ml_scorer)
         self.analysis = AnalysisService(self.db, self.bus, self.health,
                                         self.decision_engine, settings.paper_equity)
 

@@ -64,6 +64,19 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         return {"symbol": symbol, "timeframe": tf.value,
                 "candles": [c.as_dict() for c in candles]}
 
+    @app.get("/api/models")
+    def api_models() -> dict:
+        from sqlalchemy import select
+        from ..db.schema import ModelVersion
+        with db.session() as s:
+            rows = s.execute(select(ModelVersion).order_by(
+                ModelVersion.name, ModelVersion.version.desc())).scalars().all()
+        return {"models": [
+            {"name": r.name, "version": r.version, "task": r.task,
+             "status": r.status, "active": r.active, "n_samples": r.n_samples,
+             "trained_at": r.trained_at.isoformat() if r.trained_at else None,
+             "metrics": r.metrics} for r in rows]}
+
     @app.get("/api/decisions")
     def api_decisions(limit: int = 50) -> dict:
         from sqlalchemy import select
