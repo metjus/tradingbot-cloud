@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     #     AND confirmed in the UI; phase 3 has no trading at all) ---
     trading_mode: str = "paper"  # paper | live
 
+    # --- cloud sync (Cloudflare Worker); empty url = disabled ---
+    cloud_url: str = ""
+    cloud_token: str = ""          # engine bearer token (set the same in Worker secret)
+    cloud_push_seconds: float = 10.0
+    cloud_poll_seconds: float = 5.0
+
     # --- news & sentiment ---
     news_enabled: bool = True
     news_poll_seconds: float = 300.0

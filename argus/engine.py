@@ -96,6 +96,15 @@ class Engine:
             calendar=self.calendar,
             account_provider=self.portfolio.account_state)
 
+        from .cloud.sync import CloudSync
+        self.cloud: CloudSync | None = None
+        if settings.cloud_url and settings.cloud_token:
+            self.cloud = CloudSync(self.db, self.bus, self.health,
+                                   self.executor, self.portfolio, self.news,
+                                   settings.cloud_url, settings.cloud_token,
+                                   settings.cloud_push_seconds,
+                                   settings.cloud_poll_seconds)
+
     # --- candle flow ------------------------------------------------------
     def _on_m1(self, bar: Candle) -> None:
         self.db.upsert_candles([bar])
@@ -172,6 +181,8 @@ class Engine:
         self.executor.start()
         if self.news is not None:
             self.news.start()
+        if self.cloud is not None:
+            self.cloud.start()
         flush_task = asyncio.get_running_loop().create_task(self._flush_loop(), name="flush-loop")
 
         info = self.info()
@@ -190,6 +201,8 @@ class Engine:
             flush_task.cancel()
             self.analysis.stop()
             self.executor.stop()
+            if self.cloud is not None:
+                await self.cloud.stop()
             if self.news is not None:
                 await self.news.stop()
             for p in self.providers:

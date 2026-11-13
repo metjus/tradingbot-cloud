@@ -1,0 +1,11 @@
+{
+  "name": "ARGUS – Autonomous Trading Intelligence",
+  "short_name": "ARGUS",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0B0E15",
+  "theme_color": "#0B0E15",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
