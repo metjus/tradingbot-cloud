@@ -211,7 +211,9 @@ class Engine:
         info = self.info()
         app = create_app(self.db, self.bus, self.health, info,
                          news=self.news, calendar=self.calendar,
-                         executor=self.executor, portfolio=self.portfolio)
+                         executor=self.executor, portfolio=self.portfolio,
+                         decision_engine=self.decision_engine,
+                         settings=self.settings)
         config = uvicorn.Config(app, host=self.settings.api_host,
                                 port=self.settings.api_port, log_level="warning")
         self._server = uvicorn.Server(config)

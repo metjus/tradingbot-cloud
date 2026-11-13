@@ -84,6 +84,9 @@ select{background:var(--inset);color:var(--text);border:1px solid var(--line);bo
   <a href="#ai" data-v="ai">AI Analysis</a>
   <a href="#news" data-v="news">News Intelligence</a>
   <a href="#learning" data-v="learning">AI Learning</a>
+  <a href="#strategies" data-v="strategies">Strategy Manager</a>
+  <a href="#risk" data-v="risk">Risk Management</a>
+  <a href="#settings" data-v="settings">Settings</a>
   <a href="#system" data-v="system">System</a>
 </nav>
 
@@ -108,6 +111,7 @@ select{background:var(--inset);color:var(--text);border:1px solid var(--line);bo
             <div id="ind-toggles" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px"></div>
             <div id="chart"></div>
             <div id="chart-sub" style="height:120px;display:none"></div>
+            <div id="ind-values" class="small mono" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px"></div>
             <div class="small" id="chart-err"></div>
           </div>
           <div class="card">
@@ -165,6 +169,52 @@ select{background:var(--inset);color:var(--text);border:1px solid var(--line);bo
       <p class="small">Kandidát sa aktivuje až po walk-forward validácii a paper teste
         (<span class="mono">python -m argus.ml --activate N</span>); rollback:
         <span class="mono">python -m argus.ml --rollback</span>.</p>
+    </div>
+  </section>
+
+  <!-- STRATEGY MANAGER -->
+  <section class="view" id="v-strategies">
+    <div class="card">
+      <div class="label" style="margin-bottom:6px">Stratégie a ich výkonnosť (z vlastných obchodov)</div>
+      <div style="overflow-x:auto"><table id="tbl-strategies"></table></div>
+      <p class="small">Stratégia s profit factorom pod 1.0 na vzorke ≥ 30 obchodov sa
+        automaticky vypne z rozhodovania; opäť sa zapne, keď nové štatistiky prejdú.
+        Výber stratégie pre konkrétny obchod riadi aktuálny trhový režim.</p>
+    </div>
+  </section>
+
+  <!-- RISK MANAGEMENT -->
+  <section class="view" id="v-risk">
+    <div class="grid2">
+      <div class="col-main">
+        <div class="card">
+          <div class="label" style="margin-bottom:10px">Denné čerpanie limitov</div>
+          <div id="risk-usage"></div>
+        </div>
+        <div class="card">
+          <div class="label" style="margin-bottom:6px">Pevné limity (vynucované nezávisle od AI)</div>
+          <div id="risk-limits"></div>
+        </div>
+      </div>
+      <div class="col-side">
+        <div class="card">
+          <div class="label" style="margin-bottom:6px">Ochrana pozícií</div>
+          <div id="risk-trailing" class="small"></div>
+        </div>
+        <div class="card">
+          <div class="label" style="margin-bottom:6px">Stav</div>
+          <div id="risk-halt" class="small"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="view" id="v-settings">
+    <div class="card">
+      <div class="label" style="margin-bottom:6px">Konfigurácia enginu</div>
+      <div id="settings-list"></div>
+      <p class="small" id="settings-note"></p>
     </div>
   </section>
 
@@ -330,6 +380,20 @@ async function loadChart(){
       }
     }
     chart.timeScale().fitContent();
+
+    // numeric indicator strip (last values)
+    const lastOf = (a) => { if (!a) return null; for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return a[i]; return null; };
+    const atr = lastOf(ind.atr), adx = lastOf(ind.adx), rsiV = lastOf(ind.rsi);
+    const pdi = lastOf(ind.plus_di), mdi = lastOf(ind.minus_di);
+    const atrPct = (atr != null && last) ? (atr / last.close * 100) : null;
+    $("ind-values").innerHTML = [
+      rsiV != null ? `RSI <b class="${rsiV >= 70 ? "loss" : (rsiV <= 30 ? "profit" : "")}">${rsiV.toFixed(1)}</b>` : "",
+      atr != null ? `ATR ${atr.toFixed(2)}${atrPct != null ? " (" + atrPct.toFixed(2) + "%)" : ""}` : "",
+      adx != null ? `ADX <b class="${adx >= 25 ? "profit" : ""}">${adx.toFixed(1)}</b>` : "",
+      (pdi != null && mdi != null) ? `+DI <span class="profit">${pdi.toFixed(1)}</span> / −DI <span class="loss">${mdi.toFixed(1)}</span>` : "",
+      lastOf(ind.ema21) != null ? `EMA21 ${lastOf(ind.ema21).toFixed(2)}` : "",
+      lastOf(ind.vwap) != null ? `VWAP ${lastOf(ind.vwap).toFixed(2)}` : "",
+    ].filter(Boolean).map(x => `<span>${x}</span>`).join("");
   } catch(e){ $("chart-err").textContent = "Chyba načítania grafu: " + e.message; }
 }
 
@@ -397,10 +461,68 @@ async function refresh(){
 
 async function refreshSlow(){
   try {
-    const [trades, decisions, news, models, audit, events] = await Promise.all([
+    const [trades, decisions, news, models, audit, events, strategies, risk, config] =
+      await Promise.all([
       api("/api/trades?limit=200"), api("/api/decisions?limit=40"),
       api("/api/news?limit=40"), api("/api/models"),
-      api("/api/audit?limit=80"), api("/api/events")]);
+      api("/api/audit?limit=80"), api("/api/events"),
+      api("/api/strategies"), api("/api/risk"), api("/api/config")]);
+
+    $("tbl-strategies").innerHTML = "<tr><th>Stratégia</th><th>Stav</th><th>Vhodné režimy</th><th>Obchody</th><th>Win rate</th><th>PF (R)</th><th>Expectancy (R)</th></tr>" +
+      ((strategies.strategies||[]).map(s => `<tr>
+        <td style="font-weight:600">${esc(s.name)}</td>
+        <td><span class="${s.enabled ? "profit" : "loss"}">${s.enabled ? "aktívna" : "vypnutá"}</span></td>
+        <td class="small">${(s.suited_regimes||[]).join(", ")}</td>
+        <td class="mono">${s.n}</td>
+        <td class="mono">${s.win_rate != null ? (s.win_rate*100).toFixed(0)+"%" : "—"}</td>
+        <td class="mono ${s.profit_factor_r != null ? (s.profit_factor_r >= 1 ? "profit" : "loss") : ""}">${s.profit_factor_r != null ? s.profit_factor_r.toFixed(2) : "—"}</td>
+        <td class="mono">${s.expectancy_r != null ? s.expectancy_r.toFixed(2) : "—"}</td></tr>`).join("")
+       || `<tr><td colspan="7" class="small">Žiadne stratégie.</td></tr>`);
+
+    if (risk.available){
+      const L = risk.limits, U = risk.usage || {};
+      const bar = (label, used, max, fmt, danger) => {
+        const pct = max ? Math.min(100, Math.max(0, used / max * 100)) : 0;
+        return `<div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span>${label}</span><span class="mono">${fmt}</span></div>
+          <div class="scorebar"><div style="width:${pct}%;${danger && pct >= 80 ? "background:var(--loss)" : ""}"></div></div>
+        </div>`;
+      };
+      const dd = Math.max(0, -(U.daily_pl_pct || 0));
+      $("risk-usage").innerHTML =
+        bar("Denný pokles", dd, L.daily_max_loss_pct, `${(U.daily_pl_pct ?? 0).toFixed(2)}% / −${L.daily_max_loss_pct}%`, true) +
+        bar("Otvorené pozície", U.open_positions || 0, L.max_open_positions, `${U.open_positions ?? 0} / ${L.max_open_positions}`) +
+        bar("Obchody dnes", U.trades_today || 0, L.max_daily_trades, `${U.trades_today ?? 0} / ${L.max_daily_trades}`) +
+        bar("Otvorené riziko", U.open_risk_pct || 0, L.daily_max_loss_pct, `${(U.open_risk_pct ?? 0).toFixed(2)}% / ${L.daily_max_loss_pct}%`, true);
+      $("risk-limits").innerHTML = [
+        ["Riziko na obchod", L.risk_per_trade_pct + "% (strop " + L.max_risk_per_trade_pct + "%)"],
+        ["Denný limit straty", "−" + L.daily_max_loss_pct + "%"],
+        ["Minimálny risk/reward", L.min_rr],
+        ["Max. spread", L.max_spread_pct + "%"],
+        ["Max. veľkosť pozície", L.max_position_notional_pct + "% kapitálu"],
+        ["Povinný stop loss", "áno (bez SL žiadny obchod)"],
+        ["Martingale / navyšovanie po strate", "zakázané"],
+      ].map(([k,v]) => `<div class="list-item"><span class="small">${k}</span>
+        <span class="spacer"></span><span class="mono">${v}</span></div>`).join("");
+      const T = risk.trailing || {};
+      $("risk-trailing").innerHTML = T.enabled
+        ? `Break-even: SL na vstup pri <b class="mono">+${T.break_even_at_r}R</b><br>
+           Trailing: od <b class="mono">+${T.trail_start_r}R</b> vo vzdialenosti
+           <b class="mono">${T.trail_distance_r}R</b> za cenou<br>
+           <span style="color:var(--muted)">Stop sa nikdy nerozširuje.</span>`
+        : "Trailing/break-even vypnuté.";
+      $("risk-halt").innerHTML = risk.halted
+        ? `<span class="loss">OBCHODOVANIE ZASTAVENÉ</span><br>${esc(risk.halt_reason || "")}`
+        : `<span class="profit">Limity v poriadku, vstupy povolené.</span>`;
+    }
+
+    if (config.available){
+      $("settings-list").innerHTML = Object.entries(config.config).map(([k,v]) =>
+        `<div class="list-item"><span class="small">${esc(k)}</span><span class="spacer"></span>
+         <span class="mono">${esc(Array.isArray(v) ? v.join(", ") : String(v))}</span></div>`).join("");
+      $("settings-note").textContent = config.note || "";
+    }
 
     $("tbl-trades").innerHTML = "<tr><th>Čas</th><th>Inštrument</th><th>Smer</th><th>Stratégia</th><th>Vstup</th><th>Výstup</th><th>Dôvod výstupu</th><th style='text-align:right'>P/L</th></tr>" +
       ((trades.trades||[]).map(t => `<tr class="mono">

@@ -27,7 +27,8 @@ log = logging.getLogger(__name__)
 
 def create_app(db: Database, bus: EventBus, health: HealthMonitor,
                engine_info: dict, news=None, calendar=None,
-               executor=None, portfolio=None) -> FastAPI:
+               executor=None, portfolio=None, decision_engine=None,
+               settings=None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -89,6 +90,83 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         command_id = payload.get("command_id")
         return executor.command(action, str(command_id) if command_id else None)
 
+    @app.get("/api/strategies")
+    def api_strategies() -> dict:
+        if decision_engine is None:
+            return {"strategies": []}
+        sel = decision_engine.selector
+        snap = sel.snapshot() if sel is not None else {"disabled": [], "stats": {}}
+        out = []
+        for s in decision_engine.strategies:
+            st = snap["stats"].get(s.name) or {}
+            out.append({
+                "name": s.name,
+                "suited_regimes": [r.value for r in s.suited_regimes],
+                "enabled": s.name not in snap["disabled"],
+                "n": st.get("n", 0), "win_rate": st.get("win_rate"),
+                "profit_factor_r": st.get("profit_factor_r"),
+                "expectancy_r": st.get("expectancy_r"),
+                "by_regime": st.get("by_regime", {}),
+            })
+        return {"strategies": out,
+                "note": "Štatistiky z vlastných uzatvorených obchodov; PF<1 pri n>=30 stratégiu automaticky vypne."}
+
+    @app.get("/api/risk")
+    def api_risk() -> dict:
+        if executor is None:
+            return {"available": False}
+        L = executor.risk.limits
+        acct = portfolio.account_state() if portfolio else None
+        return {
+            "available": True,
+            "halted": executor.risk.halted,
+            "halt_reason": executor.risk.halt_reason,
+            "limits": {
+                "risk_per_trade_pct": L.effective_risk_pct(),
+                "max_risk_per_trade_pct": L.max_risk_per_trade_pct,
+                "daily_max_loss_pct": L.daily_max_loss_pct,
+                "max_open_positions": L.max_open_positions,
+                "max_daily_trades": L.max_daily_trades,
+                "min_rr": L.min_rr,
+                "max_spread_pct": L.max_spread_pct,
+                "max_position_notional_pct": L.max_position_notional_pct,
+            },
+            "usage": None if acct is None else {
+                "daily_pl_pct": round(acct.daily_pl_pct, 3),
+                "open_positions": acct.open_positions,
+                "trades_today": acct.trades_today,
+                "open_risk_pct": round(acct.open_risk_pct, 2),
+            },
+            "trailing": None if executor is None else {
+                "enabled": executor.trailing_enabled,
+                "break_even_at_r": executor.break_even_at_r,
+                "trail_start_r": executor.trail_start_r,
+                "trail_distance_r": executor.trail_distance_r,
+            },
+        }
+
+    @app.get("/api/config")
+    def api_config() -> dict:
+        if settings is None:
+            return {"available": False}
+        s = settings
+        return {"available": True, "config": {
+            "trading_mode": s.trading_mode, "paper_broker": s.paper_broker,
+            "paper_equity": s.paper_equity,
+            "crypto_provider": s.crypto_provider,
+            "crypto_symbols": s.crypto_symbols, "stock_symbols": s.stock_symbols,
+            "enter_threshold": s.enter_threshold,
+            "candle_poll_seconds": s.candle_poll_seconds,
+            "news_enabled": s.news_enabled,
+            "llm_enabled": bool(s.anthropic_api_key),
+            "llm_daily_budget_usd": s.llm_daily_budget_usd,
+            "cloud_sync_enabled": bool(s.cloud_url and s.cloud_token),
+            "ml_train_enabled": s.ml_train_enabled,
+            "ml_train_hour_utc": s.ml_train_hour_utc,
+            "alpaca_configured": bool(s.alpaca_key_id),
+            "data_dir": str(s.data_dir),
+        }, "note": "Hodnoty sa menia cez premenné prostredia ARGUS_* alebo .env (docs/INSTALACIA.md); kľúče a tokeny sa nezobrazujú."}
+
     @app.get("/api/news")
     def api_news(limit: int = 50) -> dict:
         if news is None:
@@ -148,7 +226,9 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         closes = [c.close for c in candles]
         macd_line, macd_sig, macd_hist = ind.macd(closes)
         bb_up, bb_mid, bb_lo = ind.bollinger(closes, 20, 2.0)
+        adx_s, pdi, mdi = ind.adx(candles, 14)
         return {
+            "adx": adx_s, "plus_di": pdi, "minus_di": mdi,
             "ts": [c.ts for c in candles],
             "ema9": ind.ema(closes, 9),
             "ema21": ind.ema(closes, 21),
