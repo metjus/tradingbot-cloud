@@ -24,7 +24,7 @@ mobilný dashboard a adaptívne machine learning jadro.
 | 13 | Integračné testy celého enginu + API + ovládania | Hotovo |
 | 14 | Live trading | Zamknuté – vyžaduje výslovné povolenie používateľa |
 
-Inštalácia a konfigurácia: `docs/INSTALACIA.md`.
+**Začni tu:** `docs/ZACIATOK.md` (prvé spustenie krok za krokom). Kompletná konfigurácia: `docs/INSTALACIA.md`.
 
 ### ML pipeline
 
