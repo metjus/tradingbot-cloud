@@ -81,6 +81,10 @@ class BrokerAdapter(ABC):
     @abstractmethod
     def positions(self) -> list[BrokerPosition]: ...
 
+    def update_stop(self, client_order_id: str, new_stop: float) -> bool:
+        """Move the protective stop (trailing / break-even). Optional."""
+        return False
+
 
 class PaperBroker(BrokerAdapter):
     """Simulated execution against live market data.
@@ -155,6 +159,19 @@ class PaperBroker(BrokerAdapter):
 
     def positions(self) -> list[BrokerPosition]:
         return list(self._positions.values())
+
+    def update_stop(self, client_order_id: str, new_stop: float) -> bool:
+        pos = self._positions.get(client_order_id)
+        if pos is None:
+            return False
+        # a stop may only tighten, never widen
+        if pos.direction == "LONG" and new_stop > pos.stop_loss:
+            pos.stop_loss = new_stop
+            return True
+        if pos.direction == "SHORT" and new_stop < pos.stop_loss:
+            pos.stop_loss = new_stop
+            return True
+        return False
 
     # --- internals ----------------------------------------------------------
     def _fill_exit(self, pos: BrokerPosition, price: float, kind: str, ts: float) -> None:

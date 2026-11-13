@@ -117,11 +117,12 @@ def walk_forward_validate(ds: Dataset, gates: ValidationGates | None = None
 
 async def train_from_history(db: Database, registry: ModelRegistry,
                              symbols: list[str], days: int = 60,
-                             gates: ValidationGates | None = None) -> dict:
-    """Full pipeline: history -> backtest signals -> dataset -> walk-forward ->
-    register candidate (status reflects validation)."""
+                             gates: ValidationGates | None = None,
+                             extra_records: list | None = None) -> dict:
+    """Full pipeline: history -> backtest signals (+ lived trade records) ->
+    dataset -> walk-forward -> register candidate (status = validation)."""
     bt = Backtester()
-    all_records = []
+    all_records = list(extra_records or [])
     per_symbol = {}
     for sym in symbols:
         bars = await ensure_history(db, sym, days)

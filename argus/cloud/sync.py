@@ -28,7 +28,7 @@ from ..monitoring.health import HealthMonitor, Status
 
 log = logging.getLogger(__name__)
 
-NOTIFY_EVENTS = {"trade", "bot_state"}
+NOTIFY_EVENTS = {"trade", "bot_state", "system_alert", "ml"}
 
 
 class CloudSync:
@@ -138,6 +138,12 @@ class CloudSync:
         if ev_type == "bot_state":
             return ("bot_state", f"ARGUS: {d.get('state', '?').upper()}",
                     str(d.get("why", "")))
+        if ev_type == "system_alert":
+            return (d.get("category", "system_error"), "ARGUS upozornenie",
+                    str(d.get("message", "")))
+        if ev_type == "ml":
+            return ("ml_training", d.get("title", "ML tréning"),
+                    str(d.get("message", "")))
         return (None, None, None)
 
     # --- commands ------------------------------------------------------------

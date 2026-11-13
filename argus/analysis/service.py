@@ -42,6 +42,8 @@ class AnalysisService:
         self._calendar = calendar              # EventCalendar | None
         self._account_provider = account_provider  # () -> AccountState | None
         self._blackout_logged: dict[str, str] = {}
+        #: last M5 FeatureSet dict per symbol (for learning context storage)
+        self.last_features_m5: dict[str, dict] = {}
         self._task: asyncio.Task | None = None
         health.register("analysis", stale_after=1800)
 
@@ -64,7 +66,11 @@ class AnalysisService:
                 result = self.evaluate_symbol(bar.symbol, bar.ts + bar.timeframe.seconds)
                 if result is not None:
                     self._persist(result)
-                    self._bus.publish(DECISION_EVENT, result.as_dict())
+                    payload = result.as_dict()
+                    f5 = self.last_features_m5.get(bar.symbol)
+                    if f5 is not None:
+                        payload["features_m5"] = f5
+                    self._bus.publish(DECISION_EVENT, payload)
                 self._health.heartbeat("analysis", Status.OK, "signal-only mode")
             except Exception as exc:
                 log.exception("analysis failed for %s: %s", bar.symbol, exc)
@@ -101,6 +107,8 @@ class AnalysisService:
             account = AccountState(equity=self._paper_equity,
                                    day_start_equity=self._paper_equity)
         from .regime import Regime
+        if Timeframe.M5 in features:
+            self.last_features_m5[symbol] = features[Timeframe.M5].as_dict()
         sentiment = self._sentiment.score_for(symbol) if self._sentiment else None
         ctx = MarketContext(symbol=symbol, now_ts=now_ts, candles=candles,
                             features=features, regime=Regime.UNCERTAIN,

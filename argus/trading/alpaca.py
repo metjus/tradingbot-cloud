@@ -72,6 +72,29 @@ class AlpacaBroker(BrokerAdapter):
         asyncio.get_running_loop().create_task(self._close(client_order_id))
         return True
 
+    def update_stop(self, client_order_id: str, new_stop: float) -> bool:
+        rec = self._orders.get(client_order_id)
+        if rec is None or rec.get("state") != "open" or not rec.get("stop_leg_id"):
+            return False
+        o: BracketOrder = rec["order"]
+        if o.direction == "LONG" and new_stop <= o.stop_loss:
+            return False
+        if o.direction == "SHORT" and new_stop >= o.stop_loss:
+            return False
+        o.stop_loss = new_stop
+        asyncio.get_running_loop().create_task(self._patch_stop(rec, new_stop))
+        return True
+
+    async def _patch_stop(self, rec: dict, new_stop: float) -> None:
+        try:
+            r = await self._client.patch(f"/v2/orders/{rec['stop_leg_id']}",
+                                         json={"stop_price": str(round(new_stop, 2))})
+            r.raise_for_status()
+            # a replace returns a NEW order id for the stop leg
+            rec["stop_leg_id"] = r.json().get("id", rec["stop_leg_id"])
+        except Exception as exc:
+            log.error("alpaca stop replace failed: %s", exc)
+
     def positions(self) -> list[BrokerPosition]:
         out = []
         for coid, rec in self._orders.items():
@@ -162,6 +185,8 @@ class AlpacaBroker(BrokerAdapter):
                                   0.0, rec["entry_ts"], "entry"))
         if rec["state"] == "open":
             for leg in data.get("legs") or []:
+                if leg.get("type") == "stop" and leg.get("id"):
+                    rec["stop_leg_id"] = leg["id"]
                 if leg.get("status") == "filled":
                     kind = "take_profit" if leg.get("type") == "limit" else "stop_loss"
                     px = float(leg.get("filled_avg_price") or 0.0)

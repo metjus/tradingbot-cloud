@@ -56,6 +56,11 @@ class StrategySelector:
         self._disabled: set[str] = set()
         self._audit = audit
 
+    def reset(self) -> None:
+        """Clear stats before a full rebuild (does not touch disable audit:
+        _recompute after the next ingest reconciles the disabled set)."""
+        self._stats = defaultdict(StratStats)
+
     def ingest(self, records: list[SignalRecord]) -> None:
         for r in records:
             if r.outcome not in ("win", "loss", "timeout"):

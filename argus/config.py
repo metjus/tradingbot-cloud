@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     cloud_push_seconds: float = 10.0
     cloud_poll_seconds: float = 5.0
 
+    # --- adaptive learning ---
+    ml_train_enabled: bool = True
+    ml_train_hour_utc: int = 3
+    ml_history_days: int = 60
+    trailing_enabled: bool = True
+    break_even_at_r: float = 1.0
+    trail_start_r: float = 1.5
+    trail_distance_r: float = 1.0
+
     # --- news & sentiment ---
     news_enabled: bool = True
     news_poll_seconds: float = 300.0

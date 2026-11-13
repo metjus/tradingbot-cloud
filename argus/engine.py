@@ -56,8 +56,10 @@ class Engine:
         ml_scorer = self.registry.load_active("setup-scorer")
         if ml_scorer is not None:
             log.info("loaded active ML model setup-scorer v%s", ml_scorer.meta.version)
+        from .analysis.selector import StrategySelector
+        self.selector = StrategySelector(audit=self.db.audit)
         self.decision_engine = DecisionEngine(self.risk, enter_threshold=settings.enter_threshold,
-                                              ml_scorer=ml_scorer)
+                                              ml_scorer=ml_scorer, selector=self.selector)
 
         from .news.calendar import EventCalendar
         from .news.llm import LLMNewsAnalyzer
@@ -92,7 +94,20 @@ class Engine:
         self.portfolio = Portfolio(self.db, broker_name=self.broker.name,
                                    mode="paper", start_equity=settings.paper_equity)
         self.executor = ExecutionService(self.db, self.bus, self.health,
-                                         self.broker, self.portfolio, self.risk)
+                                         self.broker, self.portfolio, self.risk,
+                                         trailing_enabled=settings.trailing_enabled,
+                                         break_even_at_r=settings.break_even_at_r,
+                                         trail_start_r=settings.trail_start_r,
+                                         trail_distance_r=settings.trail_distance_r)
+
+        from .ml.scheduler import TrainingScheduler
+        tracked = settings.crypto_symbols + settings.stock_symbols
+        self.ml_scheduler = TrainingScheduler(
+            self.db, self.bus, self.health, self.registry, self.selector,
+            symbols=tracked or ["BTC/USD"],
+            train_hour_utc=settings.ml_train_hour_utc,
+            history_days=settings.ml_history_days,
+            enabled=settings.ml_train_enabled)
 
         self.analysis = AnalysisService(
             self.db, self.bus, self.health, self.decision_engine,
@@ -186,6 +201,7 @@ class Engine:
         self.executor.start()
         if hasattr(self.broker, "start"):
             self.broker.start()
+        self.ml_scheduler.start()
         if self.news is not None:
             self.news.start()
         if self.cloud is not None:
@@ -208,6 +224,7 @@ class Engine:
             flush_task.cancel()
             self.analysis.stop()
             self.executor.stop()
+            self.ml_scheduler.stop()
             if hasattr(self.broker, "stop"):
                 await self.broker.stop()
             if self.cloud is not None:

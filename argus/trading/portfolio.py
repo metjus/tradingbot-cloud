@@ -35,6 +35,21 @@ class OpenPosition:
     risk_pct: float
     entry_fee: float = 0.0
     last_price: float | None = None
+    initial_stop: float = 0.0        # SL at entry; current SL may trail
+    be_done: bool = False            # break-even protection applied
+
+    @property
+    def risk_per_unit(self) -> float:
+        return abs(self.entry_price - (self.initial_stop or self.stop_loss))
+
+    def profit_r(self, price: float) -> float:
+        r = self.risk_per_unit
+        if r <= 0:
+            return 0.0
+        d = price - self.entry_price
+        if self.direction == "SHORT":
+            d = -d
+        return d / r
 
     @property
     def unrealized_pl(self) -> float | None:
@@ -82,7 +97,8 @@ class Portfolio:
                 entry_price=t.entry_price or 0.0, stop_loss=t.stop_loss or 0.0,
                 take_profit=t.take_profit or 0.0,
                 opened_at=t.entry_ts or datetime.now(timezone.utc),
-                strategy=t.strategy, risk_pct=t.risk_pct or 0.0, entry_fee=t.fees)
+                strategy=t.strategy, risk_pct=t.risk_pct or 0.0, entry_fee=t.fees,
+                initial_stop=t.stop_loss or 0.0)
         if rows:
             log.info("recovered %d open %s positions from DB", len(rows), self.mode)
 
@@ -112,7 +128,8 @@ class Portfolio:
             trade_id = t.id
         pos = OpenPosition(trade_id, client_order_id, symbol, direction, quantity,
                            price, stop_loss, take_profit,
-                           datetime.now(timezone.utc), strategy, risk_pct, fee)
+                           datetime.now(timezone.utc), strategy, risk_pct, fee,
+                           initial_stop=stop_loss)
         self.positions[client_order_id] = pos
         self.trades_today += 1
         return pos

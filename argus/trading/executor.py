@@ -37,13 +37,19 @@ STATE_EVENT = "bot_state"
 class ExecutionService:
     def __init__(self, db: Database, bus: EventBus, health: HealthMonitor,
                  broker: BrokerAdapter, portfolio: Portfolio,
-                 risk: RiskSupervisor) -> None:
+                 risk: RiskSupervisor, trailing_enabled: bool = True,
+                 break_even_at_r: float = 1.0, trail_start_r: float = 1.5,
+                 trail_distance_r: float = 1.0) -> None:
         self._db = db
         self._bus = bus
         self._health = health
         self.broker = broker
         self.portfolio = portfolio
         self.risk = risk
+        self.trailing_enabled = trailing_enabled
+        self.break_even_at_r = break_even_at_r
+        self.trail_start_r = trail_start_r
+        self.trail_distance_r = trail_distance_r
         self.state = "running"
         self._pending_entry: dict[str, dict] = {}   # client_order_id -> decision detail
         self._processed_commands: set[str] = set()
@@ -89,15 +95,60 @@ class ExecutionService:
             if isinstance(self.broker, PaperBroker):
                 self.broker.on_candle(bar)
             self.portfolio.mark_price(bar.symbol, bar.close)
+            if self.trailing_enabled:
+                self._manage_stops(bar.symbol, bar.close)
             if self.state == "pausing" and not self.portfolio.positions:
                 self._set_state("paused", "all positions closed after PAUSE")
 
+    def _manage_stops(self, symbol: str, price: float) -> None:
+        """Break-even protection and trailing stop (§14). Stops only tighten."""
+        for pos in list(self.portfolio.positions.values()):
+            if pos.symbol != symbol or pos.risk_per_unit <= 0:
+                continue
+            r = pos.profit_r(price)
+            sign = 1.0 if pos.direction == "LONG" else -1.0
+            target: float | None = None
+            why = ""
+            if not pos.be_done and r >= self.break_even_at_r:
+                target = pos.entry_price + sign * 0.05 * pos.risk_per_unit
+                why = "break-even"
+            if r >= self.trail_start_r:
+                trail = price - sign * self.trail_distance_r * pos.risk_per_unit
+                if target is None or (sign > 0 and trail > target) \
+                        or (sign < 0 and trail < target):
+                    target = trail
+                    why = "trailing"
+            if target is None:
+                continue
+            improves = (sign > 0 and target > pos.stop_loss) or \
+                       (sign < 0 and target < pos.stop_loss)
+            if not improves:
+                continue
+            if self.broker.update_stop(pos.client_order_id, target):
+                pos.stop_loss = target
+                if why == "break-even" and not pos.be_done:
+                    pos.be_done = True
+                    self._db.audit("trade",
+                                   f"{symbol}: SL moved to break-even ({target:.6g})",
+                                   data={"profit_r": round(r, 2)})
+
     async def _session_loop(self) -> None:
+        notified_day: int | None = None
         while True:
             await asyncio.sleep(30)
             if self.state == "stopped":
                 continue
             now = datetime.now(timezone.utc)
+            # daily loss limit alert (entries are already blocked by risk)
+            acct = self.portfolio.account_state()
+            if acct.daily_pl_pct <= -self.risk.limits.daily_max_loss_pct \
+                    and notified_day != now.toordinal():
+                notified_day = now.toordinal()
+                msg = (f"Dosiahnutý denný limit straty: {acct.daily_pl_pct:.2f}% "
+                       f"(limit -{self.risk.limits.daily_max_loss_pct}%)")
+                self._db.audit("risk", msg, "critical")
+                self._bus.publish("system_alert", {"category": "daily_limit",
+                                                   "message": msg})
             for pos in list(self.portfolio.positions.values()):
                 if must_flatten(pos.symbol, now):
                     self._db.audit("trade", f"{pos.symbol}: closing before session end")
@@ -148,7 +199,8 @@ class ExecutionService:
                 entry_context={"regime": decision.get("regime"),
                                "score": best.get("score"),
                                "factors": best.get("factors"),
-                               "signal": best.get("signal")})
+                               "signal": best.get("signal"),
+                               "features_m5": decision.get("features_m5")})
             self._db.audit("trade", f"OPEN {fill.symbol} {fill.direction} "
                            f"qty {fill.quantity:.6g} @ {fill.price:.6g}", data={
                                "strategy": pos.strategy, "sl": pos.stop_loss,
