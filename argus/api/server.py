@@ -132,6 +132,35 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
             for r in rows
         ]}
 
+    @app.get("/api/indicators/{symbol:path}/{timeframe}")
+    def api_indicators(symbol: str, timeframe: str, limit: int = 400) -> dict:
+        """Indicator series aligned with /api/candles (same source of truth
+        as the engine's decisions - no client-side recomputation)."""
+        try:
+            tf = Timeframe(timeframe)
+        except ValueError:
+            return {"error": f"unknown timeframe {timeframe!r}"}
+        limit = max(30, min(limit, 2000))
+        candles = db.get_candles(symbol, tf, limit=limit)
+        if not candles:
+            return {"ts": []}
+        from ..ta import indicators as ind
+        closes = [c.close for c in candles]
+        macd_line, macd_sig, macd_hist = ind.macd(closes)
+        bb_up, bb_mid, bb_lo = ind.bollinger(closes, 20, 2.0)
+        return {
+            "ts": [c.ts for c in candles],
+            "ema9": ind.ema(closes, 9),
+            "ema21": ind.ema(closes, 21),
+            "ema50": ind.ema(closes, 50) if len(closes) >= 50 else [None] * len(closes),
+            "ema200": ind.ema(closes, 200) if len(closes) >= 200 else [None] * len(closes),
+            "vwap": ind.vwap(candles),
+            "bb_upper": bb_up, "bb_mid": bb_mid, "bb_lower": bb_lo,
+            "rsi": ind.rsi(closes, 14),
+            "macd": macd_line, "macd_signal": macd_sig, "macd_hist": macd_hist,
+            "atr": ind.atr(candles, 14),
+        }
+
     @app.get("/api/audit")
     def api_audit(limit: int = 100) -> dict:
         rows = db.recent_audit(limit=max(1, min(limit, 500)))

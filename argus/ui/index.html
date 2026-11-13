@@ -105,7 +105,9 @@ select{background:var(--inset);color:var(--text);border:1px solid var(--line);bo
                 <option>1h</option><option>4h</option>
               </select>
             </div>
+            <div id="ind-toggles" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px"></div>
             <div id="chart"></div>
+            <div id="chart-sub" style="height:120px;display:none"></div>
             <div class="small" id="chart-err"></div>
           </div>
           <div class="card">
@@ -204,37 +206,131 @@ document.querySelectorAll("nav a").forEach(a => a.onclick = (e) => {
 
 setInterval(() => $("clock").textContent = new Date().toLocaleTimeString("sk-SK"), 1000);
 
-// --- chart ---
-let chart = null, candleSeries = null;
+// --- chart + indicators (Binance-style overlays) ---
+let chart = null, candleSeries = null, subChart = null;
+const overlaySeries = {};   // key -> line series on the price chart
+let subSeries = [];         // series currently on the sub chart
+const INDICATORS = [
+  {key:"ema9",   label:"EMA 9",   color:"#F0B13F", pane:"main", on:true},
+  {key:"ema21",  label:"EMA 21",  color:"#5B8CFF", pane:"main", on:true},
+  {key:"ema50",  label:"EMA 50",  color:"#8F7BFF", pane:"main", on:false},
+  {key:"ema200", label:"EMA 200", color:"#C6CEDE", pane:"main", on:false},
+  {key:"vwap",   label:"VWAP",    color:"#F6567A", pane:"main", on:true, dashed:true},
+  {key:"bb",     label:"Bollinger", color:"#5E6880", pane:"main", on:false},
+  {key:"rsi",    label:"RSI 14",  color:"#8F7BFF", pane:"sub",  on:true},
+  {key:"macd",   label:"MACD",    color:"#5B8CFF", pane:"sub",  on:false},
+];
+const indState = JSON.parse(localStorage.getItem("argus_ind") || "null") ||
+  Object.fromEntries(INDICATORS.map(i => [i.key, i.on]));
+
+function renderToggles(){
+  $("ind-toggles").innerHTML = INDICATORS.map(i =>
+    `<button data-ind="${i.key}" style="padding:4px 10px;font-size:11px;border-radius:7px;
+      background:${indState[i.key] ? "rgba(91,140,255,.15)" : "var(--inset)"};
+      border:1px solid ${indState[i.key] ? "rgba(91,140,255,.5)" : "var(--line)"};
+      color:${indState[i.key] ? i.color : "var(--muted)"}">${i.label}</button>`).join("");
+  document.querySelectorAll("#ind-toggles button").forEach(b => b.onclick = () => {
+    const k = b.dataset.ind;
+    if (k === "rsi" && !indState.rsi) indState.macd = false;   // sub pane: one at a time
+    if (k === "macd" && !indState.macd) indState.rsi = false;
+    indState[k] = !indState[k];
+    localStorage.setItem("argus_ind", JSON.stringify(indState));
+    renderToggles(); loadChart();
+  });
+}
+
 function initChart(){
   if (typeof LightweightCharts === "undefined") {
     $("chart-err").textContent = "Graf vyžaduje internet (CDN lightweight-charts). Dáta bežia ďalej.";
     return;
   }
-  chart = LightweightCharts.createChart($("chart"), {
+  const opts = {
     layout: {background: {color: "transparent"}, textColor: "#98A2B8",
              fontFamily: "'JetBrains Mono', monospace", fontSize: 11},
     grid: {vertLines: {color: "#1B2130"}, horzLines: {color: "#1B2130"}},
     rightPriceScale: {borderColor: "#242C40"},
     timeScale: {borderColor: "#242C40", timeVisible: true, secondsVisible: false},
     autoSize: true,
-  });
+  };
+  chart = LightweightCharts.createChart($("chart"), opts);
   candleSeries = chart.addCandlestickSeries({
     upColor: "#35D49B", downColor: "#F6567A", wickUpColor: "#35D49B",
     wickDownColor: "#F6567A", borderVisible: false});
+  subChart = LightweightCharts.createChart($("chart-sub"), {...opts,
+    timeScale: {...opts.timeScale, visible: false}});
+  // keep both panes time-synced
+  chart.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    if (r) subChart.timeScale().setVisibleLogicalRange(r); });
+  subChart.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    if (r) chart.timeScale().setVisibleLogicalRange(r); });
+  renderToggles();
 }
+
+const seriesData = (ts, vals) => ts.map((t, i) => vals[i] == null ? null :
+  ({time: t, value: vals[i]})).filter(Boolean);
+
+function overlay(key, color, dashed){
+  if (!overlaySeries[key]) overlaySeries[key] = chart.addLineSeries({
+    color, lineWidth: key.startsWith("bb") ? 1 : 2,
+    lineStyle: dashed ? 2 : 0, priceLineVisible: false,
+    lastValueVisible: false, crosshairMarkerVisible: false});
+  return overlaySeries[key];
+}
+function clearSub(){
+  for (const s of subSeries) subChart.removeSeries(s);
+  subSeries = [];
+}
+
 async function loadChart(){
   const sym = $("sel-symbol").value, tf = $("sel-tf").value;
   if (!sym || !candleSeries) return;
   try {
-    const d = await api(`/api/candles/${sym}/${tf}?limit=400`);
+    const [d, ind] = await Promise.all([
+      api(`/api/candles/${sym}/${tf}?limit=400`),
+      api(`/api/indicators/${sym}/${tf}?limit=400`)]);
     candleSeries.setData(d.candles.map(c => ({time: c.ts, open: c.open,
       high: c.high, low: c.low, close: c.close})));
     const last = d.candles.at(-1);
     $("chart-sym").textContent = sym + " · " + tf;
     $("chart-price").textContent = last ? last.close : "";
+
+    // price-pane overlays
+    for (const i of INDICATORS.filter(x => x.pane === "main")){
+      const keys = i.key === "bb" ? ["bb_upper","bb_mid","bb_lower"] : [i.key];
+      for (const k of keys){
+        const s = overlay(i.key === "bb" ? "bb_" + k : i.key, i.color, i.dashed || k === "bb_bb_mid");
+        s.setData(indState[i.key] && ind.ts ? seriesData(ind.ts, ind[k] || []) : []);
+      }
+    }
+    // sub pane: RSI or MACD
+    clearSub();
+    const wantSub = indState.rsi || indState.macd;
+    $("chart-sub").style.display = wantSub ? "block" : "none";
+    if (wantSub && ind.ts){
+      if (indState.rsi){
+        const s = subChart.addLineSeries({color: "#8F7BFF", lineWidth: 2,
+          priceLineVisible: false, lastValueVisible: true});
+        s.setData(seriesData(ind.ts, ind.rsi));
+        for (const lvl of [30, 70]) s.createPriceLine({price: lvl, color: "#2E3850",
+          lineWidth: 1, lineStyle: 2, axisLabelVisible: false});
+        subSeries.push(s);
+      } else if (indState.macd){
+        const h = subChart.addHistogramSeries({priceLineVisible: false});
+        h.setData(ind.ts.map((t, i) => ind.macd_hist[i] == null ? null :
+          ({time: t, value: ind.macd_hist[i],
+            color: ind.macd_hist[i] >= 0 ? "rgba(53,212,155,.6)" : "rgba(246,86,122,.6)"}))
+          .filter(Boolean));
+        const l1 = subChart.addLineSeries({color: "#5B8CFF", lineWidth: 2,
+          priceLineVisible: false, lastValueVisible: false});
+        l1.setData(seriesData(ind.ts, ind.macd));
+        const l2 = subChart.addLineSeries({color: "#F0B13F", lineWidth: 1,
+          priceLineVisible: false, lastValueVisible: false});
+        l2.setData(seriesData(ind.ts, ind.macd_signal));
+        subSeries.push(h, l1, l2);
+      }
+    }
     chart.timeScale().fitContent();
-  } catch(e){ $("chart-err").textContent = "Chyba načítania sviečok: " + e.message; }
+  } catch(e){ $("chart-err").textContent = "Chyba načítania grafu: " + e.message; }
 }
 
 // --- controls ---
@@ -381,8 +477,10 @@ function connectWs(){
       if (ev.type === "trade" || ev.type === "bot_state" || ev.type === "decision") refresh();
       if (ev.type === "candle" && candleSeries) {
         const c = ev.data;
-        if (c.symbol === $("sel-symbol").value && c.timeframe === $("sel-tf").value)
+        if (c.symbol === $("sel-symbol").value && c.timeframe === $("sel-tf").value){
           candleSeries.update({time: c.ts, open: c.open, high: c.high, low: c.low, close: c.close});
+          if (c.complete) loadChart();   // refresh indicator overlays on bar close
+        }
       }
     };
     ws.onclose = () => setTimeout(connectWs, 5000);
