@@ -16,7 +16,15 @@ mobilný dashboard a adaptívne machine learning jadro.
 | 3 | Základ enginu: market data, DB, monitoring, lokálne API | Hotovo – tento balík (`argus/`) |
 | 4 | Trading engine: indikátory, 8 stratégií, Decision Engine, Risk Supervisor (signal-only) | Hotovo |
 | 5 | ML: backtest jadro, setup-scorer s walk-forward validáciou, registry modelov s rollbackom, adaptívny výber stratégií | Hotovo |
-| 6+ | News intelligence, kompletný backtesting, paper/live, cloud, mobil | Nasleduje |
+| 6 | News & sentiment intelligence, ekonomický kalendár s blackoutmi | Hotovo |
+| 7 | Backtest CLI: IS/OOS split, citlivosť prahu, per-stratégia metriky | Hotovo |
+| 8 | Paper trading: PaperBroker, portfólio, PAUSE/EMERGENCY STOP, obchodné hodiny | Hotovo |
+| 9–11 | Cloudflare Worker + D1, mobilný PWA dashboard, web push | Hotovo (kód; nasadenie: `docs/NASADENIE-cloud.md`) |
+| 12 | Alpaca broker adaptér (bracket u brokera), desktop terminál UI, Windows shell + balenie | Hotovo (EXE build na Windows: `desktop/BUILD-WINDOWS.md`) |
+| 13 | Integračné testy celého enginu + API + ovládania | Hotovo |
+| 14 | Live trading | Zamknuté – vyžaduje výslovné povolenie používateľa |
+
+Inštalácia a konfigurácia: `docs/INSTALACIA.md`.
 
 ### ML pipeline
 

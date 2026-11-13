@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # --- runtime mode (live trading stays locked until explicitly enabled
     #     AND confirmed in the UI; phase 3 has no trading at all) ---
     trading_mode: str = "paper"  # paper | live
+    #: execution venue in paper mode: "paper" = interný simulátor,
+    #: "alpaca_paper" = Alpaca paper API (vyžaduje kľúče; bracket u brokera)
+    paper_broker: str = "paper"
 
     # --- cloud sync (Cloudflare Worker); empty url = disabled ---
     cloud_url: str = ""

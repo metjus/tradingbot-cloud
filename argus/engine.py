@@ -83,7 +83,12 @@ class Engine:
         from .trading.broker import PaperBroker
         from .trading.executor import ExecutionService
         from .trading.portfolio import Portfolio
-        self.broker = PaperBroker()
+        if settings.paper_broker == "alpaca_paper" and settings.alpaca_key_id:
+            from .trading.alpaca import AlpacaBroker
+            self.broker = AlpacaBroker(settings.alpaca_key_id,
+                                       settings.alpaca_secret_key, paper=True)
+        else:
+            self.broker = PaperBroker()
         self.portfolio = Portfolio(self.db, broker_name=self.broker.name,
                                    mode="paper", start_equity=settings.paper_equity)
         self.executor = ExecutionService(self.db, self.bus, self.health,
@@ -179,6 +184,8 @@ class Engine:
             p.start()
         self.analysis.start()
         self.executor.start()
+        if hasattr(self.broker, "start"):
+            self.broker.start()
         if self.news is not None:
             self.news.start()
         if self.cloud is not None:
@@ -201,6 +208,8 @@ class Engine:
             flush_task.cancel()
             self.analysis.stop()
             self.executor.stop()
+            if hasattr(self.broker, "stop"):
+                await self.broker.stop()
             if self.cloud is not None:
                 await self.cloud.stop()
             if self.news is not None:
