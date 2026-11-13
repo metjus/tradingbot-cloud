@@ -74,11 +74,27 @@ class Engine:
                                     poll_seconds=settings.news_poll_seconds,
                                     llm_analyzer=llm)
 
+        # --- execution (phase 8: paper only; live arrives in phase 12/14) ---
+        if settings.trading_mode != "paper":
+            raise SystemExit(
+                "trading_mode='live' is not available yet: live execution is "
+                "intentionally locked until broker integration (phase 12) and "
+                "explicit user enablement (phase 14). Use trading_mode='paper'.")
+        from .trading.broker import PaperBroker
+        from .trading.executor import ExecutionService
+        from .trading.portfolio import Portfolio
+        self.broker = PaperBroker()
+        self.portfolio = Portfolio(self.db, broker_name=self.broker.name,
+                                   mode="paper", start_equity=settings.paper_equity)
+        self.executor = ExecutionService(self.db, self.bus, self.health,
+                                         self.broker, self.portfolio, self.risk)
+
         self.analysis = AnalysisService(
             self.db, self.bus, self.health, self.decision_engine,
             settings.paper_equity,
             sentiment_tracker=self.news.tracker if self.news else None,
-            calendar=self.calendar)
+            calendar=self.calendar,
+            account_provider=self.portfolio.account_state)
 
     # --- candle flow ------------------------------------------------------
     def _on_m1(self, bar: Candle) -> None:
@@ -153,13 +169,15 @@ class Engine:
         for p in self.providers:
             p.start()
         self.analysis.start()
+        self.executor.start()
         if self.news is not None:
             self.news.start()
         flush_task = asyncio.get_running_loop().create_task(self._flush_loop(), name="flush-loop")
 
         info = self.info()
         app = create_app(self.db, self.bus, self.health, info,
-                         news=self.news, calendar=self.calendar)
+                         news=self.news, calendar=self.calendar,
+                         executor=self.executor, portfolio=self.portfolio)
         config = uvicorn.Config(app, host=self.settings.api_host,
                                 port=self.settings.api_port, log_level="warning")
         self._server = uvicorn.Server(config)
@@ -171,6 +189,7 @@ class Engine:
             self.state = "stopping"
             flush_task.cancel()
             self.analysis.stop()
+            self.executor.stop()
             if self.news is not None:
                 await self.news.stop()
             for p in self.providers:

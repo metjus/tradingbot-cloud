@@ -25,7 +25,8 @@ log = logging.getLogger(__name__)
 
 
 def create_app(db: Database, bus: EventBus, health: HealthMonitor,
-               engine_info: dict, news=None, calendar=None) -> FastAPI:
+               engine_info: dict, news=None, calendar=None,
+               executor=None, portfolio=None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -63,6 +64,29 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         candles = db.get_candles(symbol, tf, limit=limit)
         return {"symbol": symbol, "timeframe": tf.value,
                 "candles": [c.as_dict() for c in candles]}
+
+    @app.get("/api/portfolio")
+    def api_portfolio() -> dict:
+        if portfolio is None:
+            return {"available": False}
+        snap = portfolio.snapshot()
+        snap["available"] = True
+        snap["bot_state"] = executor.state if executor else "unknown"
+        return snap
+
+    @app.get("/api/trades")
+    def api_trades(limit: int = 100) -> dict:
+        if portfolio is None:
+            return {"trades": []}
+        return {"trades": portfolio.trade_history(max(1, min(limit, 500)))}
+
+    @app.post("/api/control")
+    def api_control(payload: dict) -> dict:
+        if executor is None:
+            return {"ok": False, "error": "executor unavailable"}
+        action = str(payload.get("action", ""))
+        command_id = payload.get("command_id")
+        return executor.command(action, str(command_id) if command_id else None)
 
     @app.get("/api/news")
     def api_news(limit: int = 50) -> dict:

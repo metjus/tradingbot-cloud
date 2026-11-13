@@ -31,7 +31,8 @@ NEED = {Timeframe.M5: 400, Timeframe.M15: 240, Timeframe.H1: 240}
 class AnalysisService:
     def __init__(self, db: Database, bus: EventBus, health: HealthMonitor,
                  engine: DecisionEngine, paper_equity: float,
-                 sentiment_tracker=None, calendar=None) -> None:
+                 sentiment_tracker=None, calendar=None,
+                 account_provider=None) -> None:
         self._db = db
         self._bus = bus
         self._health = health
@@ -39,6 +40,7 @@ class AnalysisService:
         self._paper_equity = paper_equity
         self._sentiment = sentiment_tracker    # SentimentTracker | None
         self._calendar = calendar              # EventCalendar | None
+        self._account_provider = account_provider  # () -> AccountState | None
         self._blackout_logged: dict[str, str] = {}
         self._task: asyncio.Task | None = None
         health.register("analysis", stale_after=1800)
@@ -93,10 +95,11 @@ class AnalysisService:
         if Timeframe.M5 not in features:
             return None  # not enough history yet
 
-        # Account state: until paper execution exists (phase 8), no open
-        # positions are tracked -> configured paper equity, flat account.
-        account = AccountState(equity=self._paper_equity,
-                               day_start_equity=self._paper_equity)
+        if self._account_provider is not None:
+            account = self._account_provider()
+        else:
+            account = AccountState(equity=self._paper_equity,
+                                   day_start_equity=self._paper_equity)
         from .regime import Regime
         sentiment = self._sentiment.score_for(symbol) if self._sentiment else None
         ctx = MarketContext(symbol=symbol, now_ts=now_ts, candles=candles,
