@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -139,6 +140,17 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
              "severity": r.severity, "message": r.message, "data": r.data}
             for r in rows
         ]}
+
+    # --- desktop UI (static, served at /) ---
+    ui_dir = Path(__file__).resolve().parent.parent / "ui"
+    if ui_dir.is_dir():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/app", StaticFiles(directory=str(ui_dir), html=True), name="ui")
+
+        @app.get("/")
+        def root_redirect():
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse("/app/")
 
     @app.websocket("/ws")
     async def ws_events(ws: WebSocket) -> None:
