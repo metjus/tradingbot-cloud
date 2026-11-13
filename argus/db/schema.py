@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from sqlalchemy import JSON, Boolean, Float, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def utcnow() -> datetime:
@@ -113,6 +113,32 @@ class Decision(Base):
     vetoed_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
     reasons: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     trade_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class NewsItem(Base):
+    __tablename__ = "news_items"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    dedupe_key: Mapped[str] = mapped_column(String(64), unique=True)
+    source: Mapped[str] = mapped_column(String(64), index=True)
+    title: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    published_at: Mapped[datetime] = mapped_column(index=True)
+    fetched_at: Mapped[datetime] = mapped_column(default=utcnow)
+    instruments: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    sentiment: Mapped[float | None] = mapped_column(Float, nullable=True)  # -1..1
+    intensity: Mapped[float | None] = mapped_column(Float, nullable=True)  # 0..1
+    analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True)     # llm/lexicon detail
+
+
+class EconomicEvent(Base):
+    __tablename__ = "economic_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    importance: Mapped[str] = mapped_column(String(8), default="high")  # low|medium|high
+    currencies: Mapped[list | None] = mapped_column(JSON, nullable=True)  # ["USD","EUR"]
+    source: Mapped[str] = mapped_column(String(64), default="manual")
 
 
 class ModelVersion(Base):

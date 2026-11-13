@@ -45,5 +45,6 @@ def test_schema_version_written(tmp_path):
     from argus.db.schema import SchemaMeta
     db = make_db(tmp_path)
     with db.session() as s:
+        from argus.db.schema import SCHEMA_VERSION
         v = s.execute(select(SchemaMeta).where(SchemaMeta.key == "schema_version")).scalar_one()
-        assert v.value == "1"
+        assert v.value == str(SCHEMA_VERSION)

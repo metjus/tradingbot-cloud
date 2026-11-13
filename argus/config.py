@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     #     AND confirmed in the UI; phase 3 has no trading at all) ---
     trading_mode: str = "paper"  # paper | live
 
+    # --- news & sentiment ---
+    news_enabled: bool = True
+    news_poll_seconds: float = 300.0
+    anthropic_api_key: str = ""          # empty = LLM analysis off, lexicon only
+    llm_daily_budget_usd: float = 1.0
+    event_blackout_before_min: int = 30
+    event_blackout_after_min: int = 15
+
     # --- decision & risk (hard limits enforced by RiskSupervisor) ---
     paper_equity: float = 10_000.0
     enter_threshold: float = 70.0   # decision score needed to enter

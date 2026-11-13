@@ -30,12 +30,16 @@ NEED = {Timeframe.M5: 400, Timeframe.M15: 240, Timeframe.H1: 240}
 
 class AnalysisService:
     def __init__(self, db: Database, bus: EventBus, health: HealthMonitor,
-                 engine: DecisionEngine, paper_equity: float) -> None:
+                 engine: DecisionEngine, paper_equity: float,
+                 sentiment_tracker=None, calendar=None) -> None:
         self._db = db
         self._bus = bus
         self._health = health
         self._engine = engine
         self._paper_equity = paper_equity
+        self._sentiment = sentiment_tracker    # SentimentTracker | None
+        self._calendar = calendar              # EventCalendar | None
+        self._blackout_logged: dict[str, str] = {}
         self._task: asyncio.Task | None = None
         health.register("analysis", stale_after=1800)
 
@@ -65,6 +69,19 @@ class AnalysisService:
                 self._health.set_status("analysis", Status.DEGRADED, str(exc))
 
     def evaluate_symbol(self, symbol: str, now_ts: int) -> DecisionResult | None:
+        # economic-event blackout: no NEW entries around high-impact events
+        if self._calendar is not None:
+            ev = self._calendar.blackout(symbol)
+            if ev is not None:
+                if self._blackout_logged.get(symbol) != ev:
+                    self._blackout_logged[symbol] = ev
+                    self._db.audit("risk", f"{symbol}: entries paused around event '{ev}'",
+                                   "warning")
+                    self._bus.publish(DECISION_EVENT, {
+                        "symbol": symbol, "verdict": "blackout", "event": ev})
+                return None
+            self._blackout_logged.pop(symbol, None)
+
         candles: dict[Timeframe, list] = {}
         features = {}
         for tf, limit in NEED.items():
@@ -81,8 +98,10 @@ class AnalysisService:
         account = AccountState(equity=self._paper_equity,
                                day_start_equity=self._paper_equity)
         from .regime import Regime
+        sentiment = self._sentiment.score_for(symbol) if self._sentiment else None
         ctx = MarketContext(symbol=symbol, now_ts=now_ts, candles=candles,
-                            features=features, regime=Regime.UNCERTAIN)
+                            features=features, regime=Regime.UNCERTAIN,
+                            sentiment=sentiment)
         return self._engine.evaluate(ctx, account)
 
     def _persist(self, res: DecisionResult) -> None:

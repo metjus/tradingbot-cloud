@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 
 def create_app(db: Database, bus: EventBus, health: HealthMonitor,
-               engine_info: dict) -> FastAPI:
+               engine_info: dict, news=None, calendar=None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -63,6 +63,21 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         candles = db.get_candles(symbol, tf, limit=limit)
         return {"symbol": symbol, "timeframe": tf.value,
                 "candles": [c.as_dict() for c in candles]}
+
+    @app.get("/api/news")
+    def api_news(limit: int = 50) -> dict:
+        if news is None:
+            return {"news": [], "sentiment": {}, "enabled": False}
+        return {"news": news.recent(max(1, min(limit, 200))),
+                "sentiment": news.tracker.snapshot(), "enabled": True}
+
+    @app.get("/api/events")
+    def api_events(hours: int = 48) -> dict:
+        if calendar is None:
+            return {"events": []}
+        return {"events": [
+            {"ts": e.ts.isoformat(), "name": e.name, "importance": e.importance,
+             "currencies": e.currencies} for e in calendar.upcoming(hours)]}
 
     @app.get("/api/models")
     def api_models() -> dict:

@@ -58,8 +58,27 @@ class Engine:
             log.info("loaded active ML model setup-scorer v%s", ml_scorer.meta.version)
         self.decision_engine = DecisionEngine(self.risk, enter_threshold=settings.enter_threshold,
                                               ml_scorer=ml_scorer)
-        self.analysis = AnalysisService(self.db, self.bus, self.health,
-                                        self.decision_engine, settings.paper_equity)
+
+        from .news.calendar import EventCalendar
+        from .news.llm import LLMNewsAnalyzer
+        from .news.service import NewsService
+        self.calendar = EventCalendar(self.db, settings.event_blackout_before_min,
+                                      settings.event_blackout_after_min)
+        self.news: NewsService | None = None
+        if settings.news_enabled:
+            llm = (LLMNewsAnalyzer(settings.anthropic_api_key,
+                                   settings.llm_daily_budget_usd)
+                   if settings.anthropic_api_key else None)
+            tracked = settings.crypto_symbols + settings.stock_symbols
+            self.news = NewsService(self.db, self.bus, self.health, tracked,
+                                    poll_seconds=settings.news_poll_seconds,
+                                    llm_analyzer=llm)
+
+        self.analysis = AnalysisService(
+            self.db, self.bus, self.health, self.decision_engine,
+            settings.paper_equity,
+            sentiment_tracker=self.news.tracker if self.news else None,
+            calendar=self.calendar)
 
     # --- candle flow ------------------------------------------------------
     def _on_m1(self, bar: Candle) -> None:
@@ -134,10 +153,13 @@ class Engine:
         for p in self.providers:
             p.start()
         self.analysis.start()
+        if self.news is not None:
+            self.news.start()
         flush_task = asyncio.get_running_loop().create_task(self._flush_loop(), name="flush-loop")
 
         info = self.info()
-        app = create_app(self.db, self.bus, self.health, info)
+        app = create_app(self.db, self.bus, self.health, info,
+                         news=self.news, calendar=self.calendar)
         config = uvicorn.Config(app, host=self.settings.api_host,
                                 port=self.settings.api_port, log_level="warning")
         self._server = uvicorn.Server(config)
@@ -149,6 +171,8 @@ class Engine:
             self.state = "stopping"
             flush_task.cancel()
             self.analysis.stop()
+            if self.news is not None:
+                await self.news.stop()
             for p in self.providers:
                 await p.stop()
             self.health.stop()
