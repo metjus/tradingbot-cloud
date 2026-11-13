@@ -145,6 +145,12 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
             },
         }
 
+    @app.get("/api/readiness")
+    def api_readiness() -> dict:
+        from ..readiness import evaluate_readiness
+        start_eq = settings.paper_equity if settings is not None else 10_000.0
+        return evaluate_readiness(db, start_eq).as_dict()
+
     @app.get("/api/config")
     def api_config() -> dict:
         if settings is None:

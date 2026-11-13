@@ -139,9 +139,15 @@ select{background:var(--inset);color:var(--text);border:1px solid var(--line);bo
 
   <!-- HISTORY -->
   <section class="view" id="v-history">
-    <div class="card">
-      <div class="label" style="margin-bottom:6px">História obchodov</div>
-      <div style="overflow-x:auto"><table id="tbl-trades"></table></div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div class="label" style="margin-bottom:6px">Equity krivka (paper)</div>
+        <div id="equity-chart" style="height:200px"></div>
+      </div>
+      <div class="card">
+        <div class="label" style="margin-bottom:6px">História obchodov</div>
+        <div style="overflow-x:auto"><table id="tbl-trades"></table></div>
+      </div>
     </div>
   </section>
 
@@ -231,6 +237,11 @@ select{background:var(--inset);color:var(--text);border:1px solid var(--line);bo
         <div class="card">
           <div class="label" style="margin-bottom:6px">Komponenty</div>
           <div id="health"></div>
+        </div>
+        <div class="card">
+          <div class="label" style="margin-bottom:6px">Pripravenosť na live trading</div>
+          <div id="readiness"></div>
+          <p class="small" id="readiness-note"></p>
         </div>
       </div>
     </div>
@@ -415,6 +426,7 @@ async function refresh(){
   try {
     const [status, health, portfolio] = await Promise.all([
       api("/api/status"), api("/api/health"), api("/api/portfolio")]);
+    lastPortfolio = portfolio;
 
     const ok = health.overall === "ok";
     const pe = $("pill-engine");
@@ -467,6 +479,19 @@ async function refreshSlow(){
       api("/api/news?limit=40"), api("/api/models"),
       api("/api/audit?limit=80"), api("/api/events"),
       api("/api/strategies"), api("/api/risk"), api("/api/config")]);
+    const readiness = await api("/api/readiness");
+
+    $("readiness").innerHTML = (readiness.checks||[]).map(ch =>
+      `<div class="list-item"><span class="${ch.passed ? "profit" : "loss"}"
+         style="flex:none;font-weight:700">${ch.passed ? "OK" : "×"}</span>
+       <span class="small" style="flex:1">${esc(ch.name)}</span>
+       <span class="mono small">${esc(ch.value)} <span style="color:var(--muted)">(${esc(ch.required)})</span></span></div>`
+    ).join("") + `<div class="list-item"><b class="${readiness.ready ? "profit" : "warn"}">
+      ${readiness.ready ? "Kritériá splnené — live vyžaduje už len výslovné povolenie."
+                        : "Zatiaľ nesplnené — live trading ostáva zamknutý."}</b></div>`;
+    $("readiness-note").textContent = readiness.note || "";
+
+    renderEquityCurve(trades.trades || []);
 
     $("tbl-strategies").innerHTML = "<tr><th>Stratégia</th><th>Stav</th><th>Vhodné režimy</th><th>Obchody</th><th>Win rate</th><th>PF (R)</th><th>Expectancy (R)</th></tr>" +
       ((strategies.strategies||[]).map(s => `<tr>
@@ -589,6 +614,42 @@ async function refreshSlow(){
        <span class="small" style="color:var(--soft)">${esc(a.message)}</span></div>`).join("");
   } catch(e){ /* engine offline; fast loop shows it */ }
 }
+
+// --- equity curve (from closed trades) ---
+let eqChart = null, eqSeries = null;
+function renderEquityCurve(trades){
+  if (typeof LightweightCharts === "undefined") return;
+  if (!eqChart){
+    eqChart = LightweightCharts.createChart($("equity-chart"), {
+      layout: {background: {color: "transparent"}, textColor: "#98A2B8",
+               fontFamily: "'JetBrains Mono', monospace", fontSize: 11},
+      grid: {vertLines: {color: "#1B2130"}, horzLines: {color: "#1B2130"}},
+      rightPriceScale: {borderColor: "#242C40"},
+      timeScale: {borderColor: "#242C40", timeVisible: true},
+      autoSize: true});
+    eqSeries = eqChart.addAreaSeries({
+      lineColor: "#5B8CFF", lineWidth: 2,
+      topColor: "rgba(91,140,255,.30)", bottomColor: "rgba(91,140,255,0)",
+      priceLineVisible: false});
+  }
+  const asc = [...trades].reverse().filter(t => t.exit_ts && t.pl != null);
+  // start equity = current equity minus total P/L (when portfolio is known)
+  let equity = 10000;
+  const p = lastPortfolio;
+  if (p && p.equity != null && p.total_pl != null) equity = p.equity - p.total_pl;
+  const pts = [];
+  const seen = new Set();
+  for (const t of asc){
+    equity += t.pl;
+    let ts = Math.floor(new Date(t.exit_ts).getTime() / 1000);
+    while (seen.has(ts)) ts += 1;   // lightweight-charts needs unique ascending times
+    seen.add(ts);
+    pts.push({time: ts, value: Math.round(equity * 100) / 100});
+  }
+  eqSeries.setData(pts);
+  if (pts.length) eqChart.timeScale().fitContent();
+}
+let lastPortfolio = null;
 
 // --- live updates over websocket (fallback: polling alone) ---
 function connectWs(){
