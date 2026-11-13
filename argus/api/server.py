@@ -64,6 +64,21 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         return {"symbol": symbol, "timeframe": tf.value,
                 "candles": [c.as_dict() for c in candles]}
 
+    @app.get("/api/decisions")
+    def api_decisions(limit: int = 50) -> dict:
+        from sqlalchemy import select
+        from ..db.schema import Decision
+        with db.session() as s:
+            rows = s.execute(
+                select(Decision).order_by(Decision.id.desc()).limit(max(1, min(limit, 200)))
+            ).scalars().all()
+        return {"decisions": [
+            {"ts": r.ts.isoformat(), "symbol": r.symbol, "strategy": r.strategy,
+             "score": r.score, "verdict": r.verdict, "vetoed_by": r.vetoed_by,
+             "detail": r.reasons}
+            for r in rows
+        ]}
+
     @app.get("/api/audit")
     def api_audit(limit: int = 100) -> dict:
         rows = db.recent_audit(limit=max(1, min(limit, 500)))

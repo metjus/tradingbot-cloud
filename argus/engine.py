@@ -14,14 +14,17 @@ import time
 import uvicorn
 
 from . import __version__
+from .analysis.service import AnalysisService
 from .api.server import create_app
 from .config import Settings
 from .core.events import CANDLE, CANDLE_PARTIAL, EventBus
 from .db.database import Database
+from .decision import DecisionEngine
 from .marketdata.aggregator import CandleAggregator
 from .marketdata.model import Candle, Timeframe
 from .marketdata.providers import AlpacaProvider, KrakenProvider, PollingProvider
 from .monitoring.health import HealthMonitor, Status
+from .risk import RiskLimits, RiskSupervisor
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +43,17 @@ class Engine:
             on_partial=lambda c: self.bus.publish(CANDLE_PARTIAL, c),
         )
         self._server: uvicorn.Server | None = None
+
+        limits = RiskLimits(
+            risk_per_trade_pct=settings.risk_per_trade_pct,
+            daily_max_loss_pct=settings.daily_max_loss_pct,
+            max_open_positions=settings.max_open_positions,
+            max_daily_trades=settings.max_daily_trades,
+        )
+        self.risk = RiskSupervisor(limits)
+        self.decision_engine = DecisionEngine(self.risk, enter_threshold=settings.enter_threshold)
+        self.analysis = AnalysisService(self.db, self.bus, self.health,
+                                        self.decision_engine, settings.paper_equity)
 
     # --- candle flow ------------------------------------------------------
     def _on_m1(self, bar: Candle) -> None:
@@ -113,6 +127,7 @@ class Engine:
         await self._backfill()
         for p in self.providers:
             p.start()
+        self.analysis.start()
         flush_task = asyncio.get_running_loop().create_task(self._flush_loop(), name="flush-loop")
 
         info = self.info()
@@ -127,6 +142,7 @@ class Engine:
         finally:
             self.state = "stopping"
             flush_task.cancel()
+            self.analysis.stop()
             for p in self.providers:
                 await p.stop()
             self.health.stop()

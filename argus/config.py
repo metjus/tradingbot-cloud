@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     #     AND confirmed in the UI; phase 3 has no trading at all) ---
     trading_mode: str = "paper"  # paper | live
 
+    # --- decision & risk (hard limits enforced by RiskSupervisor) ---
+    paper_equity: float = 10_000.0
+    enter_threshold: float = 70.0   # decision score needed to enter
+    risk_per_trade_pct: float = 0.5
+    daily_max_loss_pct: float = 2.0
+    max_open_positions: int = 4
+    max_daily_trades: int = 15
+
     @property
     def db_path(self) -> Path:
         return self.data_dir / "argus.db"

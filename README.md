@@ -14,7 +14,8 @@ mobilný dashboard a adaptívne machine learning jadro.
 | 1 | Technická analýza (brokeri, dáta, stack, architektúra) | Hotovo – `docs/FAZA-1-technicka-analyza.md` |
 | 2 | Vizuálny koncept ARGUS (identita, dizajnový systém, návrhy UI) | Hotovo – `docs/FAZA-2-vizualny-koncept.md`, `design/tokens.json` |
 | 3 | Základ enginu: market data, DB, monitoring, lokálne API | Hotovo – tento balík (`argus/`) |
-| 4+ | Trading engine, ML, news, backtesting, paper/live, cloud, mobil | Nasleduje |
+| 4 | Trading engine: indikátory, 8 stratégií, Decision Engine, Risk Supervisor (signal-only) | Hotovo |
+| 5+ | ML, news, backtesting, paper/live, cloud, mobil | Nasleduje |
 
 ## Spustenie enginu (vývoj)
 
