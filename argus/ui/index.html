@@ -6,6 +6,7 @@
 <title>ARGUS Terminal</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 :root{
   --bg:#0B0E15;--panel:#11151F;--inset:#141A28;--line:#242C40;--line2:#1B2130;
@@ -264,6 +265,10 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
   <!-- SETTINGS -->
   <section class="view" id="v-settings">
     <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div class="label" style="margin-bottom:10px">Mobilná aplikácia</div>
+        <div id="cloud-box" class="small">Načítavam…</div>
+      </div>
       <div class="card">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
           <span class="label">Peniaze a riziko</span><span class="spacer"></span>
@@ -877,6 +882,81 @@ async function saveSettings(){
   refreshSlow();
 }
 
+// --- mobile app pairing ---
+async function renderCloud(){
+  const c = await api("/api/cloud");
+  const box = $("cloud-box");
+  if (!c.paired){
+    box.innerHTML = `<p class="small">Mobilná appka beží na tvojom bezplatnom Cloudflare účte.
+      Po nasadení (návod <b>docs/MOBIL-NAVOD.md</b>) sem vlož adresu, ktorú vypísalo nasadenie,
+      napr. <span class="mono">https://argus-sync.tvoje-meno.workers.dev</span>.</p>
+      <div class="form"><div class="field"><label>Adresa ARGUS servera</label>
+        <input type="text" id="cloud-url" placeholder="https://argus-sync.….workers.dev"></div>
+      <div class="field"><label>Párovací kód (iba ak si ho nastavil)</label>
+        <input type="password" id="cloud-code" placeholder="nepovinné"></div></div>
+      <button class="btn-primary btn-sm" style="margin-top:10px" onclick="cloudPair()">Spárovať</button>
+      <div id="cloud-msg" class="small" style="margin-top:8px"></div>`;
+    return;
+  }
+  const sync = c.sync || {};
+  box.innerHTML = `<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+      <div id="qr" style="background:#fff;padding:10px;border-radius:10px;line-height:0"></div>
+      <div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:8px">
+        <div>Server: <span class="mono">${esc(c.url)}</span></div>
+        <div>Synchronizácia: <b class="${sync.status === "ok" ? "profit" : "warn"}">${esc(sync.status || "?")}</b>
+          <span class="small">${esc(sync.detail || "")}</span></div>
+        <div class="small">Naskenuj QR kód fotoaparátom telefónu - otvorí sa ARGUS a sám sa spáruje.
+          Na iPhone ho potom pridaj na plochu (Zdieľať → Pridať na plochu).</div>
+        <div class="small">Appka pridaná na plochu (hlavne iPhone) sa spáruje krátkym kódom:
+          otvor ju, a zadaj 6-miestny kód.</div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn-primary btn-sm" onclick="cloudPin()">Zobraziť 6-miestny kód</button>
+          <span id="pin" class="mono" style="font-size:22px;letter-spacing:4px"></span>
+          <span id="pin-exp" class="small"></span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-ghost btn-sm" onclick="cloudRotate()">Nový kód (odpojí telefóny)</button>
+          <button class="btn-danger btn-sm" onclick="cloudUnpair()">Zrušiť párovanie</button>
+        </div>
+      </div></div>`;
+  if (window.QRCode && c.pair_link)
+    new QRCode($("qr"), {text: c.pair_link, width: 168, height: 168,
+                         colorDark: "#0B0E15", colorLight: "#ffffff"});
+}
+async function cloudPair(){
+  const url = $("cloud-url").value.trim();
+  if (!url) return;
+  $("cloud-msg").textContent = "Párujem…";
+  const d = await post("/api/cloud/pair", {url, pairing_code: $("cloud-code").value});
+  if (!d.ok){ $("cloud-msg").innerHTML = `<span class="loss">${esc(d.error || "Nepodarilo sa")}</span>`; return; }
+  toast('<span class="profit">Spárované.</span> Naskenuj QR kód telefónom.');
+  renderCloud();
+}
+async function cloudPin(){
+  const d = await post("/api/cloud/pin");
+  if (!d.ok) return toast(`Chyba: ${esc(d.error || "?")}`);
+  $("pin").textContent = d.pin.slice(0, 3) + " " + d.pin.slice(3);
+  let left = d.expires_in;
+  clearInterval(cloudPin._t);
+  cloudPin._t = setInterval(() => {
+    left -= 1;
+    $("pin-exp").textContent = left > 0 ? `platí ešte ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : "vypršal";
+    if (left <= 0){ clearInterval(cloudPin._t); $("pin").textContent = ""; }
+  }, 1000);
+}
+async function cloudRotate(){
+  if (!confirm("Vytvoriť nový párovací kód? Všetky pripojené telefóny sa odpoja.")) return;
+  const d = await post("/api/cloud/rotate");
+  toast(d.ok ? "Nový kód vytvorený." : `Chyba: ${esc(d.error || "?")}`);
+  renderCloud();
+}
+async function cloudUnpair(){
+  if (!confirm("Zrušiť párovanie s mobilnou aplikáciou?")) return;
+  await post("/api/cloud/unpair");
+  toast("Párovanie zrušené.");
+  renderCloud();
+}
+
 // --- LLM keys & usage ---
 const KEY_NAMES = {claude: ["anthropic_api_key", "Anthropic (Claude)"],
                    openai: ["openai_api_key", "OpenAI (GPT)"],
@@ -994,7 +1074,7 @@ function renderEquityCurve(trades){
 // --- navigation side effects ---
 document.querySelectorAll("nav a").forEach(a => a.addEventListener("click", () => {
   if (a.dataset.v === "history") setTimeout(() => renderEquityCurve(lastTrades), 30);
-  if (a.dataset.v === "settings") loadSettings();
+  if (a.dataset.v === "settings") { loadSettings(); section("cloud", renderCloud); }
 }));
 
 // --- live updates over websocket (fallback: polling alone) ---

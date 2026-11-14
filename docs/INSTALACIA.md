@@ -53,7 +53,7 @@ Počas high-impact okna (−30/+15 min) engine neotvára nové pozície.
 
 ## 4. Mobil + push
 
-`docs/NASADENIE-cloud.md` (Worker, D1, Pages, VAPID). iPhone: pridať na
+`docs/MOBIL-NAVOD.md` (automatické nasadenie, párovanie QR/6-miestnym kódom). iPhone: pridať na
 plochu → povoliť notifikácie v Ovládaní.
 
 ## 5. Prechod na LIVE (FÁZA 14 – zatiaľ zamknuté)

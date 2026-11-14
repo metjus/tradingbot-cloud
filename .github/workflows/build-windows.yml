@@ -73,7 +73,7 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
-          $version = "1.0.$($env:GITHUB_RUN_NUMBER)"
+          $version = "1.1.$($env:GITHUB_RUN_NUMBER)"
           & $iscc "/DAppVersion=$version" desktop/argus.iss
           Get-Item dist/ARGUS-setup.exe
 
@@ -89,10 +89,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = "1.0.$($env:GITHUB_RUN_NUMBER)"
+          $version = "1.1.$($env:GITHUB_RUN_NUMBER)"
           gh release delete latest --yes 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "no previous release" }
           git push origin :refs/tags/latest 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "no previous tag" }
           gh release create latest dist/ARGUS-setup.exe `
             --title "ARGUS $version" `
-            --notes "Inštalátor pre Windows 11. Stiahni ARGUS-setup.exe, spusti a nainštaluj. Build z commitu $env:GITHUB_SHA."
+            --notes "Inštalátor pre Windows 11. Stiahni ARGUS-setup.exe, spusti a nainštaluj (aktualizácia zachová dáta a nastavenia). Zmeny: docs/CHANGELOG.md. Build z commitu $env:GITHUB_SHA."
           exit 0

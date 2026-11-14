@@ -1,0 +1,102 @@
+name: Deploy mobile app (Cloudflare)
+
+# Deploys the ARGUS sync Worker + mobile PWA to the repository owner's
+# Cloudflare account. Needs repository secrets CLOUDFLARE_API_TOKEN and
+# CLOUDFLARE_ACCOUNT_ID (see docs/MOBIL-NAVOD.md). Optional secret
+# ARGUS_PAIRING_CODE makes the first pairing require that code.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cloud/**"
+      - ".github/workflows/deploy-cloud.yml"
+  workflow_dispatch:
+    inputs:
+      reset_pairing:
+        description: "Zrušiť párovanie (iba ak sa nedá zrušiť z aplikácie)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-cloud
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ARGUS_PAIRING_CODE: ${{ secrets.ARGUS_PAIRING_CODE }}
+      WRANGLER_SEND_METRICS: "false"
+    defaults:
+      run:
+        working-directory: cloud/worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Cloudflare secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            {
+              echo "## Chýbajú Cloudflare údaje"
+              echo "Pridaj v repozitári **Settings → Secrets and variables → Actions** dva secrets:"
+              echo "\`CLOUDFLARE_API_TOKEN\` a \`CLOUDFLARE_ACCOUNT_ID\`. Postup: docs/MOBIL-NAVOD.md, krok 1."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID secrets are missing"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install wrangler
+        run: npm install --no-audit --no-fund --no-save wrangler@4
+
+      - name: Create or find the D1 database
+        run: |
+          ID=$(npx wrangler d1 list --json | jq -r '.[] | select(.name=="argus-db") | .uuid' | head -1)
+          if [ -z "$ID" ]; then
+            npx wrangler d1 create argus-db
+            ID=$(npx wrangler d1 list --json | jq -r '.[] | select(.name=="argus-db") | .uuid' | head -1)
+          fi
+          test -n "$ID"
+          sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$ID/" wrangler.toml
+          echo "D1 database ready"
+
+      - name: Apply database schema
+        run: |
+          npx wrangler d1 execute argus-db --remote --file schema.sql
+          # older databases created before the 'target' column existed
+          npx wrangler d1 execute argus-db --remote \
+            --command "ALTER TABLE commands ADD COLUMN target TEXT" 2>/dev/null || true
+
+      - name: Reset pairing
+        if: ${{ inputs.reset_pairing }}
+        run: |
+          npx wrangler d1 execute argus-db --remote --command "DELETE FROM config"
+          npx wrangler d1 execute argus-db --remote --command "DELETE FROM push_subscriptions"
+
+      - name: Deploy Worker + mobile app
+        run: |
+          npx wrangler deploy 2>&1 | tee deploy.log
+          if [ -n "$ARGUS_PAIRING_CODE" ]; then
+            printf '%s' "$ARGUS_PAIRING_CODE" | npx wrangler secret put PAIRING_CODE
+          fi
+
+      - name: Summary
+        run: |
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          {
+            echo "## Mobilná aplikácia ARGUS je nasadená"
+            echo ""
+            echo "Adresa servera: **${URL:-pozri výpis kroku Deploy}**"
+            echo ""
+            echo "Ďalší krok: v desktopovej aplikácii ARGUS otvor **Settings → Mobilná aplikácia**,"
+            echo "vlož túto adresu a klikni **Spárovať** (docs/MOBIL-NAVOD.md, krok 3)."
+          } >> "$GITHUB_STEP_SUMMARY"

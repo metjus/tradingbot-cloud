@@ -1,18 +1,16 @@
 name = "argus-sync"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
+workers_dev = true
 
-# 1) create the database:   wrangler d1 create argus
-# 2) paste the returned ids below
-# 3) apply schema:          wrangler d1 execute argus --file=./schema.sql --remote
-# 4) secrets:               wrangler secret put ENGINE_TOKEN
-#                           wrangler secret put DASHBOARD_TOKEN
-#                           wrangler secret put VAPID_PRIVATE_JWK   (optional, for push)
-#                           wrangler secret put VAPID_PUBLIC_KEY    (optional, for push)
-#                           wrangler secret put VAPID_SUBJECT       (mailto:you@example.com)
-# 5) deploy:                wrangler deploy
+# The mobile PWA is served by this same Worker (one URL for everything).
+# Requests that do not match a file (/api/*, /ingest/*, /setup/*, ...) run the Worker.
+[assets]
+directory = "../dashboard"
 
+# Deployed automatically by .github/workflows/deploy-cloud.yml, which
+# creates the D1 database on first run and fills in its id here.
 [[d1_databases]]
 binding = "DB"
-database_name = "argus"
+database_name = "argus-db"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"

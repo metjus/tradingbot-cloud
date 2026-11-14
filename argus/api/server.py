@@ -193,6 +193,41 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         db.audit("security", f"API kľúč {name} uložený")
         return JSONResponse({"ok": True})
 
+    # --- mobile app pairing ------------------------------------------------
+    @app.get("/api/cloud")
+    def api_cloud() -> dict:
+        return engine.cloud_status() if engine is not None else {"paired": False}
+
+    @app.post("/api/cloud/pair")
+    async def api_cloud_pair(payload: dict) -> JSONResponse:
+        try:
+            await engine.pair_cloud(str(payload.get("url", "")),
+                                    str(payload.get("pairing_code", "")))
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, 400)
+        return JSONResponse({"ok": True, **engine.cloud_status()})
+
+    @app.post("/api/cloud/pin")
+    async def api_cloud_pin() -> JSONResponse:
+        try:
+            d = await engine.create_pairing_pin()
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, 400)
+        return JSONResponse({"ok": True, "pin": d["pin"], "expires_in": d["expires_in"]})
+
+    @app.post("/api/cloud/unpair")
+    async def api_cloud_unpair() -> dict:
+        await engine.unpair_cloud()
+        return {"ok": True}
+
+    @app.post("/api/cloud/rotate")
+    async def api_cloud_rotate() -> JSONResponse:
+        try:
+            await engine.rotate_dashboard_token()
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, 400)
+        return JSONResponse({"ok": True, **engine.cloud_status()})
+
     @app.get("/api/settings")
     def api_get_settings() -> dict:
         if engine is None:

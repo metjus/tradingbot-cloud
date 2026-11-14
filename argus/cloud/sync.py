@@ -171,7 +171,8 @@ class CloudSync:
         elif self._executor is None:
             result = {"ok": False, "error": "executor unavailable"}
         else:
-            result = self._executor.command(action, command_id=f"cloud-{cid}")
+            result = self._executor.command(action, command_id=f"cloud-{cid}",
+                                            target=cmd.get("target") or None)
         self._db.audit("sync", f"Cloud command {action} ({cid})", data=result)
         try:
             await self._client.post(f"{self._base}/commands/ack",

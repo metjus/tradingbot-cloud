@@ -2,8 +2,8 @@
    Pushes arrive WITHOUT payload; on wake we fetch the latest notification
    from the Worker (config read from IndexedDB) and display it. */
 
-const CACHE = "argus-v1";
-const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
+const CACHE = "argus-v2";
+const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./icon-192.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -14,6 +14,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
+  if (/^\/(api|ingest|setup|commands)\//.test(url.pathname)) return;   // live data: never cache
   e.respondWith(
     fetch(e.request).then((r) => {
       const copy = r.clone();
@@ -52,7 +53,7 @@ self.addEventListener("push", (e) => {
       } catch (err) { /* keep generic text */ }
     }
     await self.registration.showNotification(title, {
-      body, icon: "./icon.svg", badge: "./icon.svg", tag: "argus",
+      body, icon: "./icon-192.png", badge: "./icon-192.png", tag: "argus",
     });
   })());
 });

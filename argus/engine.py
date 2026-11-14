@@ -104,6 +104,7 @@ class Engine:
                                    mode="paper", start_equity=settings.paper_equity)
         self.executor = ExecutionService(self.db, self.bus, self.health,
                                          self.broker, self.portfolio, self.risk)
+        self.executor.restore_state()
         if isinstance(self.broker, PaperBroker):
             for pos in self.portfolio.positions.values():
                 self.broker.restore(pos.client_order_id, pos.symbol, pos.direction,
@@ -139,12 +140,95 @@ class Engine:
 
         from .cloud.sync import CloudSync
         self.cloud: CloudSync | None = None
-        if settings.cloud_url and settings.cloud_token:
-            self.cloud = CloudSync(self.db, self.bus, self.health,
-                                   self.executor, self.portfolio, self.news,
-                                   settings.cloud_url, settings.cloud_token,
-                                   settings.cloud_push_seconds,
-                                   settings.cloud_poll_seconds)
+        url = settings.cloud_url or self.secrets.get("cloud_url")
+        token = settings.cloud_token or self.secrets.get("cloud_engine_token")
+        if url and token:
+            self.cloud = self._make_cloud(url, token)
+
+    # --- cloud / mobile pairing ---------------------------------------------
+    def _make_cloud(self, url: str, token: str):
+        from .cloud.sync import CloudSync
+        return CloudSync(self.db, self.bus, self.health, self.executor, self.portfolio,
+                         self.news, url, token, self.settings.cloud_push_seconds,
+                         self.settings.cloud_poll_seconds)
+
+    async def pair_cloud(self, url: str, pairing_code: str = "") -> dict:
+        """Claim a freshly deployed ARGUS Worker and start syncing to it."""
+        import httpx
+        url = url.strip().rstrip("/")
+        if not url.startswith("https://") and not url.startswith("http://127.0.0.1"):
+            raise ValueError("adresa musí začínať https://")
+        async with httpx.AsyncClient(timeout=20.0) as c:
+            r = await c.post(f"{url}/setup/claim", json={"pairing_code": pairing_code})
+        data = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if r.status_code != 200 or not data.get("ok"):
+            raise ValueError(data.get("message") or data.get("error") or f"HTTP {r.status_code}")
+        self.secrets.set("cloud_url", url)
+        self.secrets.set("cloud_engine_token", data["engine_token"])
+        self.secrets.set("cloud_dashboard_token", data["dashboard_token"])
+        await self._restart_cloud(url, data["engine_token"])
+        self.db.audit("security", f"Mobilná aplikácia spárovaná s {url}")
+        return {"url": url}
+
+    async def unpair_cloud(self) -> None:
+        import httpx
+        url = self.secrets.get("cloud_url")
+        token = self.secrets.get("cloud_engine_token")
+        if url and token:
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as c:
+                    await c.post(f"{url}/setup/reset",
+                                 headers={"Authorization": f"Bearer {token}"})
+            except Exception as exc:  # unpair locally even if the Worker is unreachable
+                log.warning("cloud reset failed: %s", exc)
+        if self.cloud is not None:
+            await self.cloud.stop()
+            self.cloud = None
+        for k in ("cloud_url", "cloud_engine_token", "cloud_dashboard_token"):
+            self.secrets.delete(k)
+        self.db.audit("security", "Párovanie s mobilnou aplikáciou zrušené")
+
+    async def rotate_dashboard_token(self) -> str:
+        import httpx
+        url = self.secrets.get("cloud_url")
+        token = self.secrets.get("cloud_engine_token")
+        async with httpx.AsyncClient(timeout=15.0) as c:
+            r = await c.post(f"{url}/setup/rotate-dashboard",
+                             headers={"Authorization": f"Bearer {token}"})
+        r.raise_for_status()
+        new = r.json()["dashboard_token"]
+        self.secrets.set("cloud_dashboard_token", new)
+        self.db.audit("security", "Nový párovací kód pre mobil (starý prestal platiť)")
+        return new
+
+    async def create_pairing_pin(self) -> dict:
+        import httpx
+        url = self.secrets.get("cloud_url")
+        token = self.secrets.get("cloud_engine_token")
+        dash = self.secrets.get("cloud_dashboard_token")
+        if not (url and token and dash):
+            raise ValueError("nie je spárované")
+        async with httpx.AsyncClient(timeout=15.0) as c:
+            r = await c.post(f"{url}/setup/pin", json={"dashboard_token": dash},
+                             headers={"Authorization": f"Bearer {token}"})
+        r.raise_for_status()
+        return r.json()
+
+    async def _restart_cloud(self, url: str, token: str) -> None:
+        if self.cloud is not None:
+            await self.cloud.stop()
+        self.cloud = self._make_cloud(url, token)
+        self.cloud.start()
+
+    def cloud_status(self) -> dict:
+        url = self.secrets.get("cloud_url") or self.settings.cloud_url or None
+        dash = self.secrets.get("cloud_dashboard_token")
+        comp = next((c for c in self.health.snapshot() if c["name"] == "cloud_sync"), None)
+        return {"paired": bool(url and (self.secrets.get("cloud_engine_token")
+                                        or self.settings.cloud_token)),
+                "url": url,
+                "pair_link": f"{url}/#pair={dash}" if url and dash else None,
+                "sync": comp}
 
     def reload_model(self) -> None:
         """Hot-swap the active ML model into the decision engine."""

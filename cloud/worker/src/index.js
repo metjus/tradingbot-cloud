@@ -1,14 +1,21 @@
 /**
- * ARGUS sync Worker: state mirror, command queue, notifications, Web Push.
+ * ARGUS sync Worker: serves the mobile PWA, mirrors engine state, queues
+ * commands, stores notifications and sends Web Push.
  *
- * Security model:
- *  - the Windows engine authenticates with ENGINE_TOKEN (outbound only)
- *  - the mobile dashboard authenticates with DASHBOARD_TOKEN (device pairing
- *    v1: a shared secret the user enters once in the PWA)
- *  - the Worker never holds broker API keys and never executes trades;
- *    commands are queued and the engine confirms execution results
- *  - Web Push: pushes are sent WITHOUT payload (no RFC8291 encryption
- *    needed); the service worker fetches the latest notification on wake.
+ * Pairing (no secrets to copy by hand):
+ *   1. the desktop app calls POST /setup/claim once (optionally with the
+ *      PAIRING_CODE Worker secret, if the owner configured one)
+ *   2. the Worker generates an engine token, a dashboard token and a VAPID
+ *      key pair, stores only SHA-256 hashes of the tokens + the VAPID keys
+ *      in D1, and returns the tokens to the desktop app (once)
+ *   3. the desktop app shows a QR/link with the dashboard token for the phone
+ *   A Worker that is already paired refuses further claims (409); the
+ *   paired engine can reset (POST /setup/reset) or rotate the phone token.
+ *
+ * Security model: the Worker never holds broker keys and never trades;
+ * commands are queued and the engine reports the result back.
+ * Web Push is sent WITHOUT payload; the service worker fetches the latest
+ * notification itself (no RFC 8291 payload encryption needed).
  */
 
 const JSON_HEADERS = {
@@ -16,58 +23,89 @@ const JSON_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, content-type",
   "access-control-allow-methods": "GET, POST, OPTIONS",
+  "cache-control": "no-store",
 };
-
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: JSON_HEADERS });
+const now = () => Math.floor(Date.now() / 1000);
 
-function bearer(request) {
-  const h = request.headers.get("authorization") || "";
-  return h.startsWith("Bearer ") ? h.slice(7) : "";
+const b64u = (buf) =>
+  btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+function randomToken(bytes = 32) {
+  const a = new Uint8Array(bytes);
+  crypto.getRandomValues(a);
+  return [...a].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function timingSafeEqual(a, b) {
+async function sha256hex(s) {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function safeEqual(a, b) {
   if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
   let out = 0;
   for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return out === 0;
 }
 
-// ---------------------------------------------------------------- VAPID ---
-const b64u = (buf) =>
-  btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function bearer(request) {
+  const h = request.headers.get("authorization") || "";
+  return h.startsWith("Bearer ") ? h.slice(7) : "";
+}
 
+// ------------------------------------------------------------ config ---
+async function cfgGet(env, key) {
+  const r = await env.DB.prepare("SELECT value FROM config WHERE key = ?").bind(key).first();
+  return r ? r.value : null;
+}
+async function cfgSet(env, key, value) {
+  await env.DB.prepare("INSERT INTO config (key, value) VALUES (?, ?) " +
+    "ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(key, value).run();
+}
+
+async function role(request, env) {
+  const tok = bearer(request);
+  if (!tok) return null;
+  const h = await sha256hex(tok);
+  const eng = await cfgGet(env, "engine_token_hash");
+  if (eng && safeEqual(h, eng)) return "engine";
+  const dash = await cfgGet(env, "dashboard_token_hash");
+  if (dash && safeEqual(h, dash)) return "dashboard";
+  // manual setup via Worker secrets is still supported
+  if (env.ENGINE_TOKEN && safeEqual(tok, env.ENGINE_TOKEN)) return "engine";
+  if (env.DASHBOARD_TOKEN && safeEqual(tok, env.DASHBOARD_TOKEN)) return "dashboard";
+  return null;
+}
+
+// ------------------------------------------------------------- VAPID ---
 async function vapidHeaders(env, endpoint) {
-  if (!env.VAPID_PRIVATE_JWK || !env.VAPID_PUBLIC_KEY) return null;
+  const jwk = await cfgGet(env, "vapid_private_jwk");
+  const pub = await cfgGet(env, "vapid_public_key");
+  const sub = (await cfgGet(env, "vapid_subject")) || "mailto:argus@example.com";
+  if (!jwk || !pub) return null;
   const { origin } = new URL(endpoint);
-  const key = await crypto.subtle.importKey(
-    "jwk", JSON.parse(env.VAPID_PRIVATE_JWK),
+  const key = await crypto.subtle.importKey("jwk", JSON.parse(jwk),
     { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
   const header = b64u(new TextEncoder().encode(JSON.stringify({ typ: "JWT", alg: "ES256" })));
   const payload = b64u(new TextEncoder().encode(JSON.stringify({
-    aud: origin,
-    exp: Math.floor(Date.now() / 1000) + 12 * 3600,
-    sub: env.VAPID_SUBJECT || "mailto:admin@example.com",
-  })));
-  const sig = await crypto.subtle.sign(
-    { name: "ECDSA", hash: "SHA-256" }, key,
+    aud: origin, exp: now() + 12 * 3600, sub })));
+  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key,
     new TextEncoder().encode(`${header}.${payload}`));
-  return {
-    Authorization: `vapid t=${header}.${payload}.${b64u(sig)}, k=${env.VAPID_PUBLIC_KEY}`,
-    TTL: "120",
-  };
+  return { Authorization: `vapid t=${header}.${payload}.${b64u(sig)}, k=${pub}`, TTL: "300" };
 }
 
 async function sendPushes(env, category) {
-  const subs = await env.DB.prepare("SELECT endpoint, json, categories FROM push_subscriptions")
-    .all();
+  const subs = await env.DB.prepare(
+    "SELECT endpoint, categories FROM push_subscriptions").all();
   for (const row of subs.results || []) {
     try {
       const cats = row.categories ? JSON.parse(row.categories) : null;
       if (cats && !cats.includes(category)) continue;
       const headers = await vapidHeaders(env, row.endpoint);
-      if (!headers) return; // push not configured
+      if (!headers) return;
       const res = await fetch(row.endpoint, { method: "POST", headers });
       if (res.status === 404 || res.status === 410) {
         await env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?")
@@ -77,35 +115,118 @@ async function sendPushes(env, category) {
   }
 }
 
-// ----------------------------------------------------------------- app ---
+// ------------------------------------------------------------- setup ---
+async function claim(request, env) {
+  if (await cfgGet(env, "engine_token_hash"))
+    return json({ error: "already_paired",
+      message: "Tento Worker je už spárovaný. Zruš párovanie v pôvodnej aplikácii " +
+               "alebo spusti nasadenie s voľbou reset_pairing." }, 409);
+  let body = {};
+  try { body = await request.json(); } catch (e) {}
+  if (env.PAIRING_CODE && !safeEqual(String(body.pairing_code || ""), env.PAIRING_CODE))
+    return json({ error: "bad_pairing_code", message: "Nesprávny párovací kód." }, 403);
+
+  const engineToken = randomToken();
+  const dashToken = randomToken(16);
+  const kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" },
+    true, ["sign", "verify"]);
+  const privJwk = await crypto.subtle.exportKey("jwk", kp.privateKey);
+  const pubRaw = await crypto.subtle.exportKey("raw", kp.publicKey);
+  const origin = new URL(request.url).origin;
+
+  await cfgSet(env, "engine_token_hash", await sha256hex(engineToken));
+  await cfgSet(env, "dashboard_token_hash", await sha256hex(dashToken));
+  await cfgSet(env, "vapid_private_jwk", JSON.stringify(privJwk));
+  await cfgSet(env, "vapid_public_key", b64u(pubRaw));
+  await cfgSet(env, "vapid_subject", origin);
+  await cfgSet(env, "paired_ts", String(now()));
+  return json({ ok: true, engine_token: engineToken, dashboard_token: dashToken,
+                url: origin });
+}
+
+async function resetAll(env) {
+  for (const t of ["config", "state", "commands", "notifications", "push_subscriptions"])
+    await env.DB.prepare(`DELETE FROM ${t}`).run();
+}
+
+// --------------------------------------------------------------- app ---
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { headers: JSON_HEADERS });
     const url = new URL(request.url);
     const p = url.pathname;
-    const tok = bearer(request);
-    const isEngine = timingSafeEqual(tok, env.ENGINE_TOKEN || "");
-    const isDash = timingSafeEqual(tok, env.DASHBOARD_TOKEN || "");
 
     try {
+      // ---- pairing ----
+      if (p === "/setup/status" && request.method === "GET")
+        return json({ paired: !!(await cfgGet(env, "engine_token_hash")),
+                      pairing_code_required: !!env.PAIRING_CODE });
+      if (p === "/setup/claim" && request.method === "POST") return claim(request, env);
+
+      const who = await role(request, env);
+
+      if (p === "/setup/reset" && request.method === "POST") {
+        if (who !== "engine") return json({ error: "unauthorized" }, 401);
+        await resetAll(env);
+        return json({ ok: true });
+      }
+      // short-lived 6-digit PIN so a phone home-screen app can pair without
+      // typing the long code (iOS keeps home-screen apps' storage separate)
+      if (p === "/setup/pin" && request.method === "POST") {
+        if (who !== "engine") return json({ error: "unauthorized" }, 401);
+        const b = await request.json();
+        const dashToken = String(b.dashboard_token || "");
+        if (!dashToken || !safeEqual(await sha256hex(dashToken),
+                                     (await cfgGet(env, "dashboard_token_hash")) || ""))
+          return json({ error: "bad dashboard token" }, 400);
+        const a = new Uint32Array(1); crypto.getRandomValues(a);
+        const pin = String(a[0] % 1000000).padStart(6, "0");
+        await cfgSet(env, "pair_pin", JSON.stringify(
+          { pin_hash: await sha256hex(pin), token: dashToken, exp: now() + 600, attempts: 0 }));
+        return json({ ok: true, pin, expires_in: 600 });
+      }
+      if (p === "/setup/redeem" && request.method === "POST") {
+        const raw = await cfgGet(env, "pair_pin");
+        if (!raw) return json({ error: "no_pin", message: "Kód neplatí - vygeneruj nový v počítači." }, 404);
+        const rec = JSON.parse(raw);
+        let b = {}; try { b = await request.json(); } catch (e) {}
+        if (now() > rec.exp) {
+          await env.DB.prepare("DELETE FROM config WHERE key = 'pair_pin'").run();
+          return json({ error: "expired", message: "Kód vypršal - vygeneruj nový v počítači." }, 410);
+        }
+        if (!safeEqual(await sha256hex(String(b.pin || "")), rec.pin_hash)) {
+          rec.attempts += 1;
+          if (rec.attempts >= 5) await env.DB.prepare("DELETE FROM config WHERE key = 'pair_pin'").run();
+          else await cfgSet(env, "pair_pin", JSON.stringify(rec));
+          return json({ error: "bad_pin", message: "Nesprávny kód." }, 403);
+        }
+        await env.DB.prepare("DELETE FROM config WHERE key = 'pair_pin'").run();
+        return json({ ok: true, dashboard_token: rec.token });
+      }
+      if (p === "/setup/rotate-dashboard" && request.method === "POST") {
+        if (who !== "engine") return json({ error: "unauthorized" }, 401);
+        const dashToken = randomToken(16);
+        await cfgSet(env, "dashboard_token_hash", await sha256hex(dashToken));
+        return json({ ok: true, dashboard_token: dashToken });
+      }
+
       // ---- engine endpoints ----
       if (p === "/ingest/state" && request.method === "POST") {
-        if (!isEngine) return json({ error: "unauthorized" }, 401);
+        if (who !== "engine") return json({ error: "unauthorized" }, 401);
         const body = await request.text();
         if (body.length > 512 * 1024) return json({ error: "too large" }, 413);
         await env.DB.prepare(
           "INSERT INTO state (id, ts, json) VALUES (1, ?, ?) " +
           "ON CONFLICT(id) DO UPDATE SET ts = excluded.ts, json = excluded.json")
-          .bind(Math.floor(Date.now() / 1000), body).run();
+          .bind(now(), body).run();
         return json({ ok: true });
       }
-
       if (p === "/ingest/notification" && request.method === "POST") {
-        if (!isEngine) return json({ error: "unauthorized" }, 401);
+        if (who !== "engine") return json({ error: "unauthorized" }, 401);
         const n = await request.json();
         await env.DB.prepare(
           "INSERT INTO notifications (ts, category, title, body, data) VALUES (?,?,?,?,?)")
-          .bind(n.ts || Math.floor(Date.now() / 1000), String(n.category || "info"),
+          .bind(n.ts || now(), String(n.category || "info"),
                 String(n.title || "").slice(0, 200), String(n.body || "").slice(0, 500),
                 JSON.stringify(n.data || {})).run();
         await env.DB.prepare(
@@ -114,68 +235,63 @@ export default {
         await sendPushes(env, String(n.category || "info"));
         return json({ ok: true });
       }
-
       if (p === "/commands/pending" && request.method === "GET") {
-        if (!isEngine) return json({ error: "unauthorized" }, 401);
+        if (who !== "engine") return json({ error: "unauthorized" }, 401);
         const rows = await env.DB.prepare(
-          "SELECT id, action, ts FROM commands WHERE status = 'pending' ORDER BY ts LIMIT 10")
+          "SELECT id, action, target, ts FROM commands WHERE status = 'pending' ORDER BY ts LIMIT 10")
           .all();
         return json({ commands: rows.results || [] });
       }
-
       if (p === "/commands/ack" && request.method === "POST") {
-        if (!isEngine) return json({ error: "unauthorized" }, 401);
+        if (who !== "engine") return json({ error: "unauthorized" }, 401);
         const b = await request.json();
         await env.DB.prepare(
           "UPDATE commands SET status = 'done', result = ?, acked_ts = ? WHERE id = ?")
-          .bind(JSON.stringify(b.result || {}), b.ts || Math.floor(Date.now() / 1000),
-                String(b.id)).run();
+          .bind(JSON.stringify(b.result || {}), b.ts || now(), String(b.id)).run();
         return json({ ok: true });
       }
 
       // ---- dashboard endpoints ----
       if (p === "/api/state" && request.method === "GET") {
-        if (!isDash) return json({ error: "unauthorized" }, 401);
+        if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
         const row = await env.DB.prepare("SELECT ts, json FROM state WHERE id = 1").first();
         const notif = await env.DB.prepare(
           "SELECT ts, category, title, body FROM notifications ORDER BY id DESC LIMIT 20").all();
         return json({
           synced_ts: row ? row.ts : null,
-          stale_s: row ? Math.max(0, Math.floor(Date.now() / 1000) - row.ts) : null,
+          stale_s: row ? Math.max(0, now() - row.ts) : null,
           state: row ? JSON.parse(row.json) : null,
           notifications: notif.results || [],
         });
       }
-
       if (p === "/api/command" && request.method === "POST") {
-        if (!isDash) return json({ error: "unauthorized" }, 401);
+        if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
         const b = await request.json();
         const action = String(b.action || "");
-        if (!["start", "pause", "emergency_stop"].includes(action))
+        if (!["start", "pause", "emergency_stop", "close_position"].includes(action))
           return json({ error: "unknown action" }, 400);
+        const target = action === "close_position" ? String(b.target || "").slice(0, 80) : null;
+        if (action === "close_position" && !target) return json({ error: "missing target" }, 400);
         const id = crypto.randomUUID();
         await env.DB.prepare(
-          "INSERT INTO commands (id, action, ts, status) VALUES (?,?,?, 'pending')")
-          .bind(id, action, Math.floor(Date.now() / 1000)).run();
+          "INSERT INTO commands (id, action, target, ts, status) VALUES (?,?,?,?, 'pending')")
+          .bind(id, action, target, now()).run();
         return json({ ok: true, id });
       }
-
       if (p.startsWith("/api/command/") && request.method === "GET") {
-        if (!isDash) return json({ error: "unauthorized" }, 401);
+        if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
         const row = await env.DB.prepare(
-          "SELECT id, action, status, result, ts, acked_ts FROM commands WHERE id = ?")
+          "SELECT id, action, target, status, result, ts, acked_ts FROM commands WHERE id = ?")
           .bind(p.split("/").pop()).first();
         if (!row) return json({ error: "not found" }, 404);
         return json({ ...row, result: row.result ? JSON.parse(row.result) : null });
       }
-
       if (p === "/api/push/key" && request.method === "GET") {
-        if (!isDash) return json({ error: "unauthorized" }, 401);
-        return json({ key: env.VAPID_PUBLIC_KEY || null });
+        if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
+        return json({ key: await cfgGet(env, "vapid_public_key") });
       }
-
       if (p === "/api/push/subscribe" && request.method === "POST") {
-        if (!isDash) return json({ error: "unauthorized" }, 401);
+        if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
         const b = await request.json();
         const sub = b.subscription || {};
         if (!sub.endpoint) return json({ error: "missing endpoint" }, 400);
@@ -184,13 +300,11 @@ export default {
           "VALUES (?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET json = excluded.json, " +
           "categories = excluded.categories")
           .bind(sub.endpoint, JSON.stringify(sub),
-                b.categories ? JSON.stringify(b.categories) : null,
-                Math.floor(Date.now() / 1000)).run();
+                b.categories ? JSON.stringify(b.categories) : null, now()).run();
         return json({ ok: true });
       }
-
       if (p === "/api/notifications/latest" && request.method === "GET") {
-        if (!isDash) return json({ error: "unauthorized" }, 401);
+        if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
         const row = await env.DB.prepare(
           "SELECT ts, category, title, body FROM notifications ORDER BY id DESC LIMIT 1").first();
         return json({ notification: row || null });
@@ -198,7 +312,7 @@ export default {
 
       return json({ error: "not found" }, 404);
     } catch (e) {
-      return json({ error: "internal", detail: String(e && e.message || e) }, 500);
+      return json({ error: "internal", detail: String((e && e.message) || e) }, 500);
     }
   },
 };

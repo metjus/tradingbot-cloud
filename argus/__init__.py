@@ -3,4 +3,4 @@
 Engine core: market data, storage, monitoring, local API.
 """
 
-__version__ = "0.3.0"
+__version__ = "1.1.0"

@@ -345,3 +345,20 @@ def test_stop_fills_at_market_after_jump():
     b2.submit_bracket(BracketOrder("c", "X/USD", "LONG", 1.0, 99.0, 103.0))
     b2.on_candle(bar("X/USD", 60, 98.5, 99.5, 98.0, 99.2))   # gap open below stop
     assert f2[-1].price == 98.5
+
+
+def test_pause_and_emergency_stop_survive_restart(tmp_path):
+    from argus.config import Settings
+    from argus.engine import Engine
+    cfg = dict(data_dir=tmp_path / "d", crypto_symbols=[], news_enabled=False,
+               ml_train_enabled=False)
+    e1 = Engine(Settings(**cfg))
+    assert e1.executor.command("pause")["state"] == "paused"
+    e2 = Engine(Settings(**cfg))
+    assert e2.executor.state == "paused"
+    e2.executor.command("emergency_stop")
+    e3 = Engine(Settings(**cfg))
+    assert e3.executor.state == "stopped" and e3.risk.halted
+    e3.executor.command("start")
+    e4 = Engine(Settings(**cfg))
+    assert e4.executor.state == "running" and not e4.risk.halted

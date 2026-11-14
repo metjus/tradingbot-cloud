@@ -26,9 +26,11 @@ obsah a opravím to.
 
 - **Nechaj paper trading bežať** (PC zapnuté; krypto sa obchoduje 24/7).
   Pokrok k live režimu: **System → Pripravenosť na live trading**.
-- **Mobil + push notifikácie** (voliteľné): `docs/NASADENIE-cloud.md`.
-- **Konfigurácia**: premenné prostredia `ARGUS_*` (zoznam v
-  `docs/INSTALACIA.md`); dáta sú v `%APPDATA%\ARGUS`.
+- **Mobil + push notifikácie** (voliteľné): `docs/MOBIL-NAVOD.md`.
+- **Nastavenia** (rozpočet, max. na pozíciu, burza a poplatky, mince, AI):
+  priamo v aplikácii v sekcii **Settings**; dáta sú v `%APPDATA%\ARGUS`.
+- **Prvé spustenie**: približne 2 minúty po štarte sa na pozadí spustí kalibrácia
+  mincí a prvý tréning modelu (niekoľko minút) - bot medzitým beží normálne.
 
 ## Alternatíva pre vývoj: beh zo zdrojákov
 

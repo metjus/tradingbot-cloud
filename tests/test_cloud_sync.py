@@ -63,7 +63,7 @@ class FakeExecutor:
     def __init__(self):
         self.commands = []
 
-    def command(self, action, command_id=None):
+    def command(self, action, command_id=None, target=None):
         self.commands.append((action, command_id))
         self.state = "paused" if action == "pause" else self.state
         return {"ok": True, "state": self.state}

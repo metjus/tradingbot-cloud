@@ -301,10 +301,37 @@ class ExecutionService:
                     "state": self.state}
         return {"ok": True, "state": self.state}
 
+    def restore_state(self) -> None:
+        """Re-apply a PAUSE / EMERGENCY STOP that was active before a restart -
+        a bot stopped from the phone must not silently resume trading."""
+        from ..db.schema import AppSetting
+        with self._db.session() as s:
+            row = s.get(AppSetting, "bot_state")
+            saved = (row.value or {}).get("state") if row is not None else None
+        if saved == "stopped":
+            self.risk.halt("emergency stop (pred reštartom)")
+            self.state = "stopped"
+        elif saved in ("paused", "pausing"):
+            self.state = "pausing" if self.portfolio.positions else "paused"
+        if saved in ("stopped", "paused", "pausing"):
+            self._db.audit("system", f"Stav bota obnovený po reštarte: {self.state}")
+            self._health.set_status("execution", Status.OK, self.state)
+
+    def _persist_state(self) -> None:
+        from ..db.schema import AppSetting
+        with self._db.session() as s:
+            row = s.get(AppSetting, "bot_state")
+            if row is None:
+                s.add(AppSetting(key="bot_state", value={"state": self.state}))
+            else:
+                row.value = {"state": self.state}
+            s.commit()
+
     def _set_state(self, state: str, why: str) -> None:
         if state == self.state:
             return
         self.state = state
+        self._persist_state()
         self._db.audit("system", f"Bot state -> {state} ({why})",
                        "warning" if state in ("stopped",) else "info")
         self._health.set_status("execution", Status.OK, state)

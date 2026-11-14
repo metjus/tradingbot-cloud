@@ -1,4 +1,9 @@
--- ARGUS sync D1 schema
+-- ARGUS sync D1 schema (idempotent)
+CREATE TABLE IF NOT EXISTS config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS state (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   ts INTEGER NOT NULL,
@@ -8,6 +13,7 @@ CREATE TABLE IF NOT EXISTS state (
 CREATE TABLE IF NOT EXISTS commands (
   id TEXT PRIMARY KEY,
   action TEXT NOT NULL,
+  target TEXT,
   ts INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',   -- pending | done
   result TEXT,
