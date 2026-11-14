@@ -18,6 +18,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def default_data_dir() -> Path:
+    if os.environ.get("ARGUS_HOME"):
+        return Path(os.environ["ARGUS_HOME"])
     if platform.system() == "Windows":
         base = os.environ.get("APPDATA", str(Path.home()))
         return Path(base) / "ARGUS"

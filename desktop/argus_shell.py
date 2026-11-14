@@ -49,15 +49,17 @@ def run_engine() -> None:
     except Exception:
         pass
     try:
-        from argus.__main__ import main as engine_main
-        engine_main()
+        from argus.app import run as engine_run
+        engine_run()
     except SystemExit:
         raise
     except BaseException:
         stream.write("\n=== ENGINE CRASHED ===\n")
         traceback.print_exc(file=stream)
         stream.flush()
-        raise
+        # exit cleanly: re-raising in a windowed EXE pops a blocking error
+        # dialog and the process never ends; the shell detects the exit
+        sys.exit(1)
 
 
 def engine_running() -> bool:

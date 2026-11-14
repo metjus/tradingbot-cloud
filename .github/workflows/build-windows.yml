@@ -35,9 +35,10 @@ jobs:
         run: >
           pyinstaller --noconfirm --clean --name ARGUS --windowed
           --icon desktop/argus.ico
+          --paths .
           --add-data "argus/ui;argus/ui"
           --collect-submodules argus
-          --hidden-import argus.__main__
+          --hidden-import argus.app
           desktop/argus_shell.py
 
       - name: Smoke-test the frozen engine
