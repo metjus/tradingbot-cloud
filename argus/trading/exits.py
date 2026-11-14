@@ -69,8 +69,13 @@ def evaluate_exit(pos, price: float, params: ExitParams,
     pos.max_favorable_r = max(pos.max_favorable_r, r)
     actions: list[ExitAction] = []
 
+    min_gap = price * 0.0005   # a stop must stay this far on the protective side
+
     def better(stop: float) -> bool:
-        return (s > 0 and stop > pos.stop_loss) or (s < 0 and stop < pos.stop_loss)
+        tighter = (s > 0 and stop > pos.stop_loss) or (s < 0 and stop < pos.stop_loss)
+        # never place a stop at/through the current price - it would fire at once
+        valid = (s > 0 and stop < price - min_gap) or (s < 0 and stop > price + min_gap)
+        return tighter and valid
 
     # --- hard exits first -------------------------------------------------
     mfe = pos.max_favorable_r
@@ -108,10 +113,10 @@ def evaluate_exit(pos, price: float, params: ExitParams,
                            "break-even vrátane poplatkov"))
     if r >= params.trail_start_r:
         candidates.append((price - s * params.trail_distance_r * R, "trailing stop"))
-    if candidates:
-        best = max(candidates, key=lambda c: c[0] * s)
-        if better(best[0]):
-            actions.append(ExitAction("stop", best[0], best[1]))
+    valid = [c for c in candidates if better(c[0])]
+    if valid:
+        best = max(valid, key=lambda c: c[0] * s)
+        actions.append(ExitAction("stop", best[0], best[1]))
 
     # --- take-profit extension -------------------------------------------
     if (pos.tp_extensions < params.max_tp_extensions and regime is not None

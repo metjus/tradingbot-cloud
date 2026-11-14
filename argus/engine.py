@@ -104,6 +104,14 @@ class Engine:
                                    mode="paper", start_equity=settings.paper_equity)
         self.executor = ExecutionService(self.db, self.bus, self.health,
                                          self.broker, self.portfolio, self.risk)
+        if isinstance(self.broker, PaperBroker):
+            for pos in self.portfolio.positions.values():
+                self.broker.restore(pos.client_order_id, pos.symbol, pos.direction,
+                                    pos.quantity, pos.entry_price, pos.stop_loss,
+                                    pos.take_profit, pos.opened_at.timestamp(), pos.strategy)
+            if self.portfolio.positions:
+                self.db.audit("trade", f"Obnovené otvorené paper pozície po reštarte: "
+                              f"{len(self.portfolio.positions)}")
 
         from .ml.scheduler import TrainingScheduler
         tracked = self.crypto_symbols + settings.stock_symbols

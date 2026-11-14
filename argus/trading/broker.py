@@ -124,7 +124,11 @@ class PaperBroker(BrokerAdapter):
             else:
                 hit_sl, hit_tp = bar.high >= pos.stop_loss, bar.low <= pos.take_profit
             if hit_sl:
-                self._fill_exit(pos, pos.stop_loss, "stop_loss", bar.ts)
+                # gap through the stop at the open -> filled at the open
+                gapped = (bar.open <= pos.stop_loss) if pos.direction == "LONG" \
+                    else (bar.open >= pos.stop_loss)
+                self._fill_exit(pos, bar.open if gapped else pos.stop_loss,
+                                "stop_loss", bar.ts)
             elif hit_tp:
                 self._fill_exit(pos, pos.take_profit, "take_profit", bar.ts)
 
@@ -140,7 +144,9 @@ class PaperBroker(BrokerAdapter):
             else:
                 hit_sl, hit_tp = price >= pos.stop_loss, price <= pos.take_profit
             if hit_sl:
-                self._fill_exit(pos, pos.stop_loss, "stop_loss", ts or self._clock())
+                # a stop becomes a market order: it fills at the market price,
+                # which after a jump is WORSE than the stop level
+                self._fill_exit(pos, price, "stop_loss", ts or self._clock())
             elif hit_tp:
                 self._fill_exit(pos, pos.take_profit, "take_profit", ts or self._clock())
 
@@ -186,6 +192,16 @@ class PaperBroker(BrokerAdapter):
             return False
         pos.take_profit = new_tp
         return True
+
+    def restore(self, client_order_id: str, symbol: str, direction: str, quantity: float,
+                entry_price: float, stop_loss: float, take_profit: float,
+                opened_ts: float, strategy: str = "") -> None:
+        """Re-create a simulated position after an app restart (the paper
+        book lives in memory; the portfolio DB is the source of truth)."""
+        if client_order_id not in self._positions:
+            self._positions[client_order_id] = BrokerPosition(
+                client_order_id, symbol, direction, quantity, entry_price,
+                stop_loss, take_profit, opened_ts, strategy)
 
     def update_stop(self, client_order_id: str, new_stop: float) -> bool:
         pos = self._positions.get(client_order_id)

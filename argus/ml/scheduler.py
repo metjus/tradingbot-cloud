@@ -62,6 +62,9 @@ class TrainingScheduler:
         self._tasks = [loop.create_task(self._trade_loop(trade_q), name="ml-selector")]
         if self._enabled:
             self._tasks.append(loop.create_task(self._nightly_loop(), name="ml-nightly"))
+            if not load_profiles(self._db):
+                # first start: calibrate coins + first model soon, not tonight
+                self._tasks.append(loop.create_task(self._first_run(), name="ml-first-run"))
 
     def stop(self) -> None:
         for t in self._tasks:
@@ -103,6 +106,12 @@ class TrainingScheduler:
             from datetime import timedelta
             target += timedelta(days=1)
         return (target - now).total_seconds()
+
+    async def _first_run(self, delay: float = 120.0) -> None:
+        await asyncio.sleep(delay)
+        if not self.running:
+            self._db.audit("ml", "Prvé spustenie: kalibrácia mincí a tréning modelu")
+            await self._guarded_run()
 
     def train_now(self) -> bool:
         """Start a training run in the background (UI button). False if one

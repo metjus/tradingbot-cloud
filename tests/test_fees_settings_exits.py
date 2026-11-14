@@ -296,3 +296,52 @@ def test_forming_bar_from_ticks(tmp_path):
     m5 = eng.forming_bar("X/USD", Timeframe.M5)
     assert m5.ts == t0 and m5.open == 98.0 and m5.high == 102.5
     assert m5.low == 97.0 and m5.close == 100.5
+
+
+def test_open_paper_positions_survive_restart(tmp_path):
+    """After a restart the paper broker must know the open positions again,
+    otherwise SL/TP and manual close would silently stop working."""
+    from argus.config import Settings
+    from argus.engine import Engine
+    cfg = dict(data_dir=tmp_path / "d", crypto_symbols=[], news_enabled=False,
+               ml_train_enabled=False)
+    e1 = Engine(Settings(**cfg))
+    e1.broker.on_tick("BTC/USD", 100.0)
+    e1.executor._maybe_enter({"verdict": "enter", "regime": "x", "best": {"score": 80,
+        "signal": {"symbol": "BTC/USD", "direction": "LONG", "entry": 100.0,
+                   "stop_loss": 99.0, "take_profit": 103.0, "strategy": "m", "reasons": []}},
+        "risk": {"approved": True, "quantity": 1.0, "risk_pct": 0.5}})
+    assert len(e1.portfolio.positions) == 1
+    e2 = Engine(Settings(**cfg))                      # "restart"
+    assert len(e2.broker.positions()) == 1
+    e2.broker.on_tick("BTC/USD", 98.9)                # stop hit after restart
+    assert e2.portfolio.positions == {}
+    assert e2.portfolio.trade_history()[0]["exit_reason"] == "stop_loss"
+
+
+def test_break_even_never_above_market_with_high_fees():
+    """Kraken-level costs: cost-inclusive break-even is above the current
+    price -> must NOT be placed (it would stop the trade out instantly)."""
+    p = pos(entry=64000, sl=63500, tp=66000)
+    params = ExitParams(round_trip_cost_pct=1.64)
+    acts = evaluate_exit(p, 64550, params)          # +1.1R but below BE+costs
+    stops = [a.price for a in acts if a.kind == "stop"]
+    assert all(st < 64550 for st in stops)
+    assert not any(a.kind == "close" for a in acts)
+
+
+def test_stop_fills_at_market_after_jump():
+    fills = []
+    b = PaperBroker(fee_pct=0.0, slippage_pct=0.0, clock=lambda: 0.0)
+    b.on_fill = fills.append
+    b.on_tick("X/USD", 100.0)
+    b.submit_bracket(BracketOrder("c", "X/USD", "LONG", 1.0, 99.0, 103.0))
+    b.on_tick("X/USD", 98.2)                        # jumped through the stop
+    assert fills[-1].kind == "stop_loss" and fills[-1].price == 98.2
+    b2 = PaperBroker(fee_pct=0.0, slippage_pct=0.0, clock=lambda: 0.0)
+    f2 = []
+    b2.on_fill = f2.append
+    b2.on_tick("X/USD", 100.0)
+    b2.submit_bracket(BracketOrder("c", "X/USD", "LONG", 1.0, 99.0, 103.0))
+    b2.on_candle(bar("X/USD", 60, 98.5, 99.5, 98.0, 99.2))   # gap open below stop
+    assert f2[-1].price == 98.5

@@ -97,6 +97,23 @@ async def test_full_engine_boot_api_and_pipeline(settings):
             assert any("Engine running" in m for m in msgs)
             assert any("Bot state -> stopped" in m for m in msgs)
 
+            # every GET endpoint the terminal uses must answer 200 - one
+            # failing endpoint used to blank whole UI sections
+            for ep in ["/api/health", "/api/status", "/api/portfolio", "/api/trades",
+                       "/api/decisions", "/api/news", "/api/events", "/api/models",
+                       "/api/strategies", "/api/risk", "/api/config", "/api/readiness",
+                       "/api/settings", "/api/llm", "/api/ml/status", "/api/audit",
+                       "/api/candles/SYN/USD/5m", "/api/indicators/SYN/USD/5m",
+                       "/api/knowledge/export"]:
+                r = await client.get(ep)
+                assert r.status_code == 200, f"{ep} -> {r.status_code}: {r.text[:300]}"
+
+            # settings round-trip over the API
+            r = await client.post("/api/settings", json={"budget_eur": 1234})
+            assert r.json()["ok"] and r.json()["values"]["budget_eur"] == 1234
+            r = await client.post("/api/settings", json={"fee_venue": "nope"})
+            assert r.status_code == 400
+
             # UI shell is served
             r = await client.get("/app/")
             assert r.status_code == 200 and "ARGUS" in r.text
