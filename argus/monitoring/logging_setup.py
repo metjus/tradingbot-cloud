@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import sys
 from pathlib import Path
 
 FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
@@ -15,9 +16,12 @@ def setup_logging(data_dir: Path, level: int = logging.INFO) -> None:
         return
     root.setLevel(level)
 
-    console = logging.StreamHandler()
-    console.setFormatter(logging.Formatter(FORMAT))
-    root.addHandler(console)
+    # Windowed (PyInstaller --windowed) builds have no console: sys.stderr
+    # is None and a StreamHandler would crash the process on first log line.
+    if sys.stderr is not None:
+        console = logging.StreamHandler()
+        console.setFormatter(logging.Formatter(FORMAT))
+        root.addHandler(console)
 
     log_dir = data_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -26,3 +30,5 @@ def setup_logging(data_dir: Path, level: int = logging.INFO) -> None:
     )
     fileh.setFormatter(logging.Formatter(FORMAT))
     root.addHandler(fileh)
+    # one line per HTTP poll would flood the log
+    logging.getLogger("httpx").setLevel(logging.WARNING)

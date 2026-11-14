@@ -214,8 +214,12 @@ class Engine:
                          executor=self.executor, portfolio=self.portfolio,
                          decision_engine=self.decision_engine,
                          settings=self.settings)
+        # log_config=None: uvicorn's default config builds console formatters
+        # that call sys.stdout.isatty(), which crashes when there is no console
+        # (pythonw / windowed EXE). Its loggers propagate to our root handlers.
         config = uvicorn.Config(app, host=self.settings.api_host,
-                                port=self.settings.api_port, log_level="warning")
+                                port=self.settings.api_port, log_level="warning",
+                                log_config=None)
         self._server = uvicorn.Server(config)
         self.state = info["state"] = "running"
         self.db.audit("system", "Engine running")

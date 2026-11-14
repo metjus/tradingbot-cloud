@@ -54,8 +54,12 @@ jobs:
             if ($p.HasExited) { break }
           }
           if (-not $ok) {
-            Write-Host "engine did not come up; log follows:"
+            Write-Host "engine did not come up (exited: $($p.HasExited))"
+            Get-ChildItem -Recurse "$env:APPDATA/ARGUS" -ErrorAction SilentlyContinue | Select-Object FullName, Length
+            Write-Host "--- argus.log"
             Get-Content "$env:APPDATA/ARGUS/logs/argus.log" -ErrorAction SilentlyContinue
+            Write-Host "--- engine-stdio.log"
+            Get-Content "$env:APPDATA/ARGUS/logs/engine-stdio.log" -ErrorAction SilentlyContinue
             exit 1
           }
           $html = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:7421/app/").Content

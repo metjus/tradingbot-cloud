@@ -29,9 +29,35 @@ FROZEN = bool(getattr(sys, "frozen", False))
 
 
 def run_engine() -> None:
-    """Engine mode (``--engine``): run the trading engine in this process."""
-    from argus.__main__ import main as engine_main
-    engine_main()
+    """Engine mode (``--engine``): run the trading engine in this process.
+
+    Windowed builds have sys.stdout/stderr = None, so anything that writes
+    to the console (uvicorn, warnings, tracebacks) would crash the process
+    invisibly. Route stdio to a file first and capture any startup crash."""
+    import traceback
+    log_dir = os.path.dirname(log_path())
+    os.makedirs(log_dir, exist_ok=True)
+    stream = open(os.path.join(log_dir, "engine-stdio.log"), "a",
+                  buffering=1, encoding="utf-8", errors="replace")
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
+    try:
+        import faulthandler
+        faulthandler.enable(stream)
+    except Exception:
+        pass
+    try:
+        from argus.__main__ import main as engine_main
+        engine_main()
+    except SystemExit:
+        raise
+    except BaseException:
+        stream.write("\n=== ENGINE CRASHED ===\n")
+        traceback.print_exc(file=stream)
+        stream.flush()
+        raise
 
 
 def engine_running() -> bool:
