@@ -1,0 +1,18 @@
+name = "argus-sync"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# 1) create the database:   wrangler d1 create argus
+# 2) paste the returned ids below
+# 3) apply schema:          wrangler d1 execute argus --file=./schema.sql --remote
+# 4) secrets:               wrangler secret put ENGINE_TOKEN
+#                           wrangler secret put DASHBOARD_TOKEN
+#                           wrangler secret put VAPID_PRIVATE_JWK   (optional, for push)
+#                           wrangler secret put VAPID_PUBLIC_KEY    (optional, for push)
+#                           wrangler secret put VAPID_SUBJECT       (mailto:you@example.com)
+# 5) deploy:                wrangler deploy
+
+[[d1_databases]]
+binding = "DB"
+database_name = "argus"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B0E15">
+<title>ARGUS</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#0B0E15;--panel:#11151F;--inset:#141A28;--line:#242C40;--line2:#1B2130;
+  --text:#E8EDF7;--text2:#98A2B8;--muted:#5E6880;--soft:#C6CEDE;
+  --blue:#5B8CFF;--violet:#8F7BFF;--profit:#35D49B;--loss:#F6567A;--warn:#F0B13F;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,sans-serif;
+  padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+.mono{font-family:'JetBrains Mono',monospace}
+header{display:flex;align-items:center;gap:10px;padding:18px 16px 10px}
+.wordmark{font-family:'Space Grotesk',sans-serif;font-weight:700;letter-spacing:4px;font-size:16px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;
+  border-radius:999px;padding:5px 10px;border:1px solid var(--line);color:var(--text2)}
+.pill.ok{color:var(--profit);background:rgba(53,212,155,.1);border-color:rgba(53,212,155,.35)}
+.pill.warn{color:var(--warn);background:rgba(240,177,63,.1);border-color:rgba(240,177,63,.4)}
+.pill.bad{color:var(--loss);background:rgba(246,86,122,.1);border-color:rgba(246,86,122,.4)}
+.dot{width:6px;height:6px;border-radius:3px;background:currentColor}
+main{padding:0 16px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+.label{font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)}
+.big{font-size:34px;font-weight:600;line-height:1.1}
+.row{display:flex;gap:16px;flex-wrap:wrap}
+.kv{display:flex;flex-direction:column;gap:2px}
+.kv .k{font-size:11px;color:var(--muted)}
+.kv .v{font-size:14px;font-weight:600}
+.pos{display:flex;flex-direction:column;gap:10px}
+.tag{font-size:10px;font-weight:700;border-radius:6px;padding:3px 7px}
+.tag.long{color:var(--profit);background:rgba(53,212,155,.12)}
+.tag.short{color:var(--loss);background:rgba(246,86,122,.12)}
+.profit{color:var(--profit)}.loss{color:var(--loss)}.warn{color:var(--warn)}
+button{font-family:Inter,sans-serif;font-size:14px;font-weight:600;border-radius:12px;
+  padding:14px 0;border:none;cursor:pointer;width:100%}
+.btn-primary{color:#fff;background:linear-gradient(135deg,var(--blue),var(--violet))}
+.btn-warn{color:var(--warn);background:rgba(240,177,63,.1);border:1px solid rgba(240,177,63,.45)}
+.btn-danger{color:var(--loss);background:rgba(246,86,122,.1);border:1px solid rgba(246,86,122,.5);font-weight:700}
+.btn-ghost{color:var(--text);background:var(--inset);border:1px solid var(--line)}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:#0D1119;
+  border-top:1px solid var(--line2);padding:8px 4px calc(8px + env(safe-area-inset-bottom))}
+nav a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  text-decoration:none;color:var(--muted);font-size:10px;font-weight:600;padding:6px 0}
+nav a.active{color:var(--blue)}
+.hidden{display:none}
+.news-item{display:flex;gap:10px;align-items:baseline;padding:8px 0;border-top:1px solid var(--line2)}
+.news-item:first-of-type{border-top:none}
+.news-time{font-size:10px;color:var(--muted);flex:none;font-family:'JetBrains Mono',monospace}
+.small{font-size:12px;color:var(--text2);line-height:1.5}
+input[type=text],input[type=url],input[type=password]{width:100%;background:var(--inset);
+  border:1px solid var(--line);border-radius:10px;color:var(--text);padding:12px;font-size:14px}
+.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;
+  border-top:1px solid var(--line2);font-size:13px}
+.spacer{flex:1}
+.range{position:relative;height:7px;border-radius:4px;background:var(--line)}
+.range .fill{position:absolute;top:0;height:7px;border-radius:4px;
+  background:linear-gradient(90deg,rgba(246,86,122,.55),rgba(53,212,155,.55))}
+.range .mark{position:absolute;top:-3px;width:3px;height:13px;border-radius:2px;background:var(--text)}
+</style>
+</head>
+<body>
+<header>
+  <svg width="26" height="26" viewBox="0 0 88 88" role="img" aria-label="ARGUS logo">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5B8CFF"/><stop offset="1" stop-color="#8F7BFF"/></linearGradient></defs>
+    <rect x="2" y="2" width="84" height="84" rx="22" fill="#11151F" stroke="#242C40" stroke-width="2"/>
+    <path d="M 14 44 Q 44 16 74 44 Q 44 72 14 44 Z" fill="none" stroke="url(#g)" stroke-width="4"/>
+    <rect x="38" y="32" width="12" height="24" rx="3" fill="url(#g)"/>
+  </svg>
+  <span class="wordmark">ARGUS</span>
+  <span class="spacer"></span>
+  <span id="pill-conn" class="pill"><span class="dot"></span><span id="conn-text">…</span></span>
+  <span id="pill-mode" class="pill warn hidden">PAPER</span>
+</header>
+
+<main>
+  <!-- setup -->
+  <section id="view-setup" class="card hidden">
+    <div class="label">Pripojenie</div>
+    <p class="small">Zadaj adresu svojho Cloudflare Workera a párovací token
+      (DASHBOARD_TOKEN). Uložia sa iba v tomto zariadení.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+      <input type="url" id="inp-url" placeholder="https://argus-sync.xxx.workers.dev">
+      <input type="password" id="inp-token" placeholder="Párovací token">
+      <button class="btn-primary" onclick="saveSetup()">Pripojiť</button>
+    </div>
+  </section>
+
+  <!-- overview -->
+  <section id="view-overview" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+    <div class="card" style="background:linear-gradient(160deg,#141A2B,#11151F)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span class="label">Kapitál</span>
+        <span id="sync-ago" class="small"></span>
+      </div>
+      <div class="big mono" id="equity">—</div>
+      <div class="row" style="margin-top:10px">
+        <div class="kv"><span class="k">Denný P/L</span><span class="v mono" id="day-pl">—</span></div>
+        <div class="kv"><span class="k">Celkový P/L</span><span class="v mono" id="total-pl">—</span></div>
+        <div class="kv"><span class="k">Obchody dnes</span><span class="v mono" id="trades-today">—</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="label" style="margin-bottom:8px">Otvorené pozície</div>
+      <div id="positions" class="pos"><span class="small">Žiadne otvorené pozície.</span></div>
+    </div>
+    <div class="card">
+      <div class="label" style="margin-bottom:8px">Systém</div>
+      <div id="healths" class="small">—</div>
+    </div>
+  </section>
+
+  <!-- trades -->
+  <section id="view-trades" class="card hidden">
+    <div class="label" style="margin-bottom:8px">História obchodov</div>
+    <div id="trades"></div>
+  </section>
+
+  <!-- news -->
+  <section id="view-news" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+    <div class="card">
+      <div class="label" style="margin-bottom:8px">Sentiment</div>
+      <div id="sentiment" class="small">—</div>
+    </div>
+    <div class="card">
+      <div class="label" style="margin-bottom:8px">Správy</div>
+      <div id="news"></div>
+    </div>
+  </section>
+
+  <!-- controls -->
+  <section id="view-controls" class="hidden" style="display:flex;flex-direction:column;gap:12px">
+    <div class="card" style="display:flex;flex-direction:column;gap:10px">
+      <div class="label">Ovládanie bota</div>
+      <div style="display:flex;gap:10px">
+        <button class="btn-primary" onclick="sendCmd('start')">Spustiť</button>
+        <button class="btn-warn" onclick="sendCmd('pause')">Pauza</button>
+      </div>
+      <button class="btn-danger" onclick="confirmStop()">EMERGENCY STOP</button>
+      <p class="small">Pauza nechá pozície dobehnúť podľa SL/TP. Emergency stop
+        ich zatvorí. Každý príkaz potvrdzuje Windows aplikácia; výsledok sa
+        zobrazí po spracovaní.</p>
+      <div id="cmd-status" class="small"></div>
+    </div>
+    <div class="card">
+      <div class="label">Push notifikácie</div>
+      <div class="toggle-row"><span>Obchody otvorené</span><input type="checkbox" class="cat" value="trade_opened" checked></div>
+      <div class="toggle-row"><span>Obchody uzatvorené</span><input type="checkbox" class="cat" value="trade_closed" checked></div>
+      <div class="toggle-row"><span>Stav bota</span><input type="checkbox" class="cat" value="bot_state" checked></div>
+      <div class="toggle-row"><span>Systémové chyby</span><input type="checkbox" class="cat" value="system_error" checked></div>
+      <button class="btn-ghost" style="margin-top:10px" onclick="subscribePush()">Povoliť / aktualizovať notifikácie</button>
+      <p class="small" id="push-status">Na iPhone najprv pridaj aplikáciu na plochu
+        (Zdieľať → Pridať na plochu), potom povoľ notifikácie tu.</p>
+    </div>
+    <div class="card">
+      <div class="label">Zariadenie</div>
+      <button class="btn-ghost" style="margin-top:10px" onclick="resetSetup()">Odpojiť / zmeniť token</button>
+    </div>
+  </section>
+</main>
+
+<nav id="nav">
+  <a href="#overview" class="active" data-view="overview">Prehľad</a>
+  <a href="#trades" data-view="trades">História</a>
+  <a href="#news" data-view="news">Správy</a>
+  <a href="#controls" data-view="controls">Ovládanie</a>
+</nav>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const cfg = {
+  get url(){ return localStorage.getItem("argus_url") || ""; },
+  get token(){ return localStorage.getItem("argus_token") || ""; },
+};
+let lastState = null;
+
+function show(view){
+  for (const v of ["setup","overview","trades","news","controls"])
+    $("view-"+v).classList.toggle("hidden", v !== view);
+  document.querySelectorAll("nav a").forEach(a =>
+    a.classList.toggle("active", a.dataset.view === view));
+}
+document.querySelectorAll("nav a").forEach(a => a.onclick = (e) => {
+  e.preventDefault();
+  if (!cfg.url || !cfg.token) return show("setup");
+  show(a.dataset.view);
+});
+
+function saveSetup(){
+  const u = $("inp-url").value.trim().replace(/\/$/,"");
+  const t = $("inp-token").value.trim();
+  if (!u || !t) return;
+  localStorage.setItem("argus_url", u);
+  localStorage.setItem("argus_token", t);
+  idbSet({url:u, token:t});
+  show("overview"); tick();
+}
+function resetSetup(){
+  localStorage.removeItem("argus_url"); localStorage.removeItem("argus_token");
+  show("setup");
+}
+
+async function api(path, opts={}){
+  const r = await fetch(cfg.url + path, {...opts, headers: {
+    "Authorization": "Bearer " + cfg.token,
+    "Content-Type": "application/json", ...(opts.headers||{})}});
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+const fmtEur = (v) => (v==null ? "—" : (v>=0?"+":"") + v.toFixed(2) + " €");
+const cls = (v) => v==null ? "" : (v >= 0 ? "profit" : "loss");
+
+function render(data){
+  const st = data.state || {};
+  const p = st.portfolio || {};
+  const stale = data.stale_s;
+  const online = stale != null && stale < 60;
+  const pc = $("pill-conn");
+  pc.className = "pill " + (online ? "ok" : "bad");
+  $("conn-text").textContent = online ? "ONLINE" :
+    (stale == null ? "BEZ DÁT" : "OFFLINE");
+  $("sync-ago").textContent = stale == null ? "zatiaľ žiadna synchronizácia" :
+    "synchronizované pred " + (stale < 90 ? stale + " s" : Math.round(stale/60) + " min");
+  $("pill-mode").classList.remove("hidden");
+  $("pill-mode").textContent = (st.bot_state || "?").toUpperCase();
+
+  $("equity").textContent = p.equity != null ? p.equity.toFixed(2) + " €" : "—";
+  $("day-pl").textContent = fmtEur(p.day_pl); $("day-pl").className = "v mono " + cls(p.day_pl);
+  $("total-pl").textContent = fmtEur(p.total_pl); $("total-pl").className = "v mono " + cls(p.total_pl);
+  $("trades-today").textContent = p.trades_today ?? "—";
+
+  const pos = p.open_positions || [];
+  $("positions").innerHTML = pos.length ? pos.map(o => {
+    const lo = Math.min(o.stop_loss, o.take_profit), hi = Math.max(o.stop_loss, o.take_profit);
+    const pct = (v) => Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100));
+    return `<div style="display:flex;flex-direction:column;gap:8px;padding:10px 0;border-top:1px solid var(--line2)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="tag ${o.direction==="LONG"?"long":"short"}">${o.direction}</span>
+        <b>${o.symbol}</b><span class="small">${o.strategy||""}</span>
+        <span class="spacer"></span>
+        <span class="mono ${cls(o.unrealized_pl)}">${fmtEur(o.unrealized_pl)}</span>
+      </div>
+      <div class="range"><div class="fill" style="left:0;width:100%"></div>
+        <div class="mark" style="left:${pct(o.last_price ?? o.entry)}%"></div></div>
+      <div style="display:flex;justify-content:space-between" class="small mono">
+        <span class="loss">SL ${o.stop_loss}</span><span>Vstup ${o.entry}</span>
+        <span class="profit">TP ${o.take_profit}</span></div>
+    </div>`;
+  }).join("") : '<span class="small">Žiadne otvorené pozície.</span>';
+
+  const h = (st.health && st.health.components) || [];
+  $("healths").innerHTML = h.map(c =>
+    `<div class="toggle-row"><span>${c.name}</span>
+     <span class="${c.status==="ok"?"profit":(c.status==="degraded"?"warn":"loss")}">${c.status}</span></div>`
+  ).join("") || "—";
+
+  $("trades").innerHTML = (st.trades || []).map(t =>
+    `<div class="news-item"><span class="news-time">${(t.exit_ts||"").slice(11,16)}</span>
+     <div style="flex:1"><b style="font-size:13px">${t.symbol}</b>
+     <span class="small"> ${t.direction} · ${t.strategy} · ${t.exit_reason||""}</span></div>
+     <span class="mono ${cls(t.pl)}" style="font-size:13px">${fmtEur(t.pl)}</span></div>`
+  ).join("") || '<span class="small">Zatiaľ žiadne obchody.</span>';
+
+  const sent = st.sentiment || {};
+  $("sentiment").innerHTML = Object.keys(sent).length ? Object.entries(sent).map(([k,v]) =>
+    `<div class="toggle-row"><span>${k}</span>
+     <span class="mono ${v>=0.1?"profit":(v<=-0.1?"loss":"")}">${v.toFixed(2)}</span></div>`).join("")
+    : "Zatiaľ neutrálne / bez dát.";
+
+  $("news").innerHTML = (st.news || []).map(n =>
+    `<div class="news-item"><span class="news-time">${(n.ts||"").slice(11,16)}</span>
+     <div><div style="font-size:12.5px;line-height:1.45;color:var(--soft)">${escapeHtml(n.title)}</div>
+     <div class="small" style="font-size:10.5px">${n.source||""} ${
+       (n.instruments||[]).join(", ")} ${n.sentiment>0.2?"· pozitívne":(n.sentiment<-0.2?"· negatívne":"")}</div></div></div>`
+  ).join("") || '<span class="small">Žiadne správy.</span>';
+}
+
+function escapeHtml(s){ const d = document.createElement("div"); d.textContent = s||""; return d.innerHTML; }
+
+async function tick(){
+  if (!cfg.url || !cfg.token) return;
+  try { lastState = await api("/api/state"); render(lastState); }
+  catch(e){
+    const pc = $("pill-conn"); pc.className = "pill bad";
+    $("conn-text").textContent = e.message.includes("401") ? "ZLÝ TOKEN" : "CHYBA SPOJENIA";
+  }
+}
+
+async function sendCmd(action){
+  $("cmd-status").textContent = "Odosielam príkaz…";
+  try {
+    const out = await api("/api/command", {method:"POST", body: JSON.stringify({action})});
+    $("cmd-status").textContent = "Príkaz zaradený, čakám na potvrdenie enginom…";
+    for (let i = 0; i < 12; i++) {
+      await new Promise(r => setTimeout(r, 2500));
+      const st = await api("/api/command/" + out.id);
+      if (st.status === "done") {
+        const res = st.result || {};
+        $("cmd-status").textContent = res.ok ?
+          `Vykonané · stav bota: ${res.state}` : `Zamietnuté: ${res.error||"?"}`;
+        return tick();
+      }
+    }
+    $("cmd-status").textContent = "Bez potvrdenia (engine offline?). Príkaz čaká vo fronte.";
+  } catch(e){ $("cmd-status").textContent = "Chyba: " + e.message; }
+}
+function confirmStop(){
+  if (confirm("Naozaj EMERGENCY STOP? Otvorené pozície sa zatvoria za trhovú cenu."))
+    sendCmd("emergency_stop");
+}
+
+// ---- push ----
+function b64ToU8(b64){
+  const pad = "=".repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g,"+").replace(/_/g,"/"));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+async function subscribePush(){
+  const s = $("push-status");
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window))
+      return s.textContent = "Toto zariadenie/prehliadač nepodporuje Web Push.";
+    const reg = await navigator.serviceWorker.ready;
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return s.textContent = "Notifikácie neboli povolené.";
+    const { key } = await api("/api/push/key");
+    if (!key) return s.textContent = "Worker nemá nastavené VAPID kľúče.";
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: b64ToU8(key)});
+    const categories = [...document.querySelectorAll(".cat:checked")].map(c => c.value);
+    await api("/api/push/subscribe", {method:"POST",
+      body: JSON.stringify({subscription: sub.toJSON(), categories})});
+    s.textContent = "Notifikácie aktívne (" + categories.length + " kategórií).";
+  } catch(e){ s.textContent = "Chyba push: " + e.message; }
+}
+
+// ---- tiny IDB so the service worker can read url+token ----
+function idbSet(val){
+  const req = indexedDB.open("argus", 1);
+  req.onupgradeneeded = () => req.result.createObjectStore("kv");
+  req.onsuccess = () => {
+    const tx = req.result.transaction("kv", "readwrite");
+    tx.objectStore("kv").put(val, "cfg");
+  };
+}
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+if (!cfg.url || !cfg.token) show("setup");
+else { show("overview"); idbSet({url: cfg.url, token: cfg.token}); }
+tick();
+setInterval(tick, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARGUS Terminal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{
+  --bg:#0B0E15;--panel:#11151F;--inset:#141A28;--line:#242C40;--line2:#1B2130;
+  --text:#E8EDF7;--text2:#98A2B8;--muted:#5E6880;--soft:#C6CEDE;
+  --blue:#5B8CFF;--violet:#8F7BFF;--profit:#35D49B;--loss:#F6567A;--warn:#F0B13F;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,sans-serif;font-size:13px}
+.mono{font-family:'JetBrains Mono',monospace}
+.label{font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)}
+.profit{color:var(--profit)}.loss{color:var(--loss)}.warn{color:var(--warn)}
+header{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line2);background:#0D1119;flex-wrap:wrap}
+.wordmark{font-family:'Space Grotesk',sans-serif;font-weight:700;letter-spacing:4px;font-size:14px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;border-radius:999px;padding:5px 11px;border:1px solid var(--line);color:var(--text2)}
+.pill.ok{color:var(--profit);background:rgba(53,212,155,.1);border-color:rgba(53,212,155,.35)}
+.pill.warn{color:var(--warn);background:rgba(240,177,63,.1);border-color:rgba(240,177,63,.4)}
+.pill.bad{color:var(--loss);background:rgba(246,86,122,.1);border-color:rgba(246,86,122,.4)}
+.dot{width:6px;height:6px;border-radius:3px;background:currentColor}
+.spacer{flex:1}
+button{font-family:Inter,sans-serif;font-weight:600;border-radius:9px;border:none;cursor:pointer;font-size:12px;padding:9px 16px}
+.btn-primary{color:#fff;background:linear-gradient(135deg,var(--blue),var(--violet))}
+.btn-warn{color:var(--warn);background:rgba(240,177,63,.1);border:1px solid rgba(240,177,63,.45)}
+.btn-danger{color:var(--loss);background:rgba(246,86,122,.1);border:1px solid rgba(246,86,122,.5);font-weight:700}
+.layout{display:flex;min-height:calc(100vh - 59px)}
+nav{width:196px;flex:none;border-right:1px solid var(--line2);background:#0D1119;padding:12px 8px;display:flex;flex-direction:column;gap:2px}
+nav a{display:flex;align-items:center;gap:10px;color:var(--text2);text-decoration:none;font-size:13px;padding:9px 12px;border-left:2px solid transparent;border-radius:0 9px 9px 0}
+nav a.active{color:var(--text);font-weight:600;background:linear-gradient(90deg,rgba(91,140,255,.16),rgba(143,123,255,.08));border-left-color:var(--blue)}
+main{flex:1;min-width:0;padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.stat .v{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--muted);font-weight:600;padding:6px 10px 6px 0}
+td{padding:8px 10px 8px 0;border-top:1px solid var(--line2)}
+.grid2{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.col-main{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:14px}
+.col-side{flex:1 1 300px;min-width:280px;max-width:380px;display:flex;flex-direction:column;gap:14px}
+.view{display:none}.view.active{display:block}
+#chart{height:340px}
+.tag{font-size:10px;font-weight:700;border-radius:6px;padding:3px 7px}
+.tag.long{color:var(--profit);background:rgba(53,212,155,.12)}
+.tag.short{color:var(--loss);background:rgba(246,86,122,.12)}
+.list-item{padding:8px 0;border-top:1px solid var(--line2);display:flex;gap:10px;align-items:baseline}
+.list-item:first-child{border-top:none}
+.time{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;flex:none}
+.small{font-size:12px;color:var(--text2);line-height:1.5}
+select{background:var(--inset);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12px}
+.scorebar{height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.scorebar div{height:5px;background:linear-gradient(90deg,var(--blue),var(--violet))}
+</style>
+</head>
+<body>
+<header>
+  <svg width="26" height="26" viewBox="0 0 88 88" role="img" aria-label="ARGUS">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B8CFF"/><stop offset="1" stop-color="#8F7BFF"/></linearGradient></defs>
+    <rect x="2" y="2" width="84" height="84" rx="22" fill="#11151F" stroke="#242C40" stroke-width="2"/>
+    <path d="M 14 44 Q 44 16 74 44 Q 44 72 14 44 Z" fill="none" stroke="url(#g)" stroke-width="4"/>
+    <rect x="38" y="32" width="12" height="24" rx="3" fill="url(#g)"/>
+  </svg>
+  <span class="wordmark">ARGUS</span>
+  <span class="pill" id="pill-engine"><span class="dot"></span><span id="engine-text">…</span></span>
+  <span class="pill warn" id="pill-mode">PAPER</span>
+  <span class="pill" id="pill-state">—</span>
+  <span class="spacer"></span>
+  <span class="mono small" id="clock"></span>
+  <button class="btn-primary" onclick="cmd('start')">Spustiť</button>
+  <button class="btn-warn" onclick="cmd('pause')">Pauza</button>
+  <button class="btn-danger" onclick="if(confirm('Naozaj EMERGENCY STOP? Pozície sa zatvoria za trhovú cenu.'))cmd('emergency_stop')">EMERGENCY STOP</button>
+</header>
+
+<div class="layout">
+<nav>
+  <a href="#dash" data-v="dash" class="active">Dashboard</a>
+  <a href="#history" data-v="history">Trade History</a>
+  <a href="#ai" data-v="ai">AI Analysis</a>
+  <a href="#news" data-v="news">News Intelligence</a>
+  <a href="#learning" data-v="learning">AI Learning</a>
+  <a href="#strategies" data-v="strategies">Strategy Manager</a>
+  <a href="#risk" data-v="risk">Risk Management</a>
+  <a href="#settings" data-v="settings">Settings</a>
+  <a href="#system" data-v="system">System</a>
+</nav>
+
+<main>
+  <!-- DASHBOARD -->
+  <section class="view active" id="v-dash">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="stats" id="stats"></div>
+      <div class="grid2">
+        <div class="col-main">
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+              <b id="chart-sym">—</b>
+              <span class="mono" id="chart-price"></span>
+              <span class="spacer"></span>
+              <select id="sel-symbol" onchange="loadChart()"></select>
+              <select id="sel-tf" onchange="loadChart()">
+                <option>1m</option><option selected>5m</option><option>15m</option>
+                <option>1h</option><option>4h</option>
+              </select>
+            </div>
+            <div id="ind-toggles" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px"></div>
+            <div id="chart"></div>
+            <div id="chart-sub" style="height:120px;display:none"></div>
+            <div id="ind-values" class="small mono" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px"></div>
+            <div class="small" id="chart-err"></div>
+          </div>
+          <div class="card">
+            <div class="label" style="margin-bottom:6px">Otvorené pozície</div>
+            <div style="overflow-x:auto"><table id="tbl-pos"></table></div>
+          </div>
+        </div>
+        <div class="col-side">
+          <div class="card">
+            <div class="label" style="margin-bottom:8px">AI Decision Engine</div>
+            <div id="dash-decisions" class="small">Zatiaľ žiadne vyhodnotenia.</div>
+          </div>
+          <div class="card">
+            <div class="label" style="margin-bottom:8px">Sentiment</div>
+            <div id="dash-sentiment" class="small">—</div>
+          </div>
+          <div class="card">
+            <div class="label" style="margin-bottom:8px">Najbližšie udalosti</div>
+            <div id="dash-events" class="small">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section class="view" id="v-history">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div class="label" style="margin-bottom:6px">Equity krivka (paper)</div>
+        <div id="equity-chart" style="height:200px"></div>
+      </div>
+      <div class="card">
+        <div class="label" style="margin-bottom:6px">História obchodov</div>
+        <div style="overflow-x:auto"><table id="tbl-trades"></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AI ANALYSIS -->
+  <section class="view" id="v-ai">
+    <div class="card">
+      <div class="label" style="margin-bottom:6px">Rozhodnutia (vrátane zamietnutých)</div>
+      <div id="ai-decisions"></div>
+    </div>
+  </section>
+
+  <!-- NEWS -->
+  <section class="view" id="v-news">
+    <div class="card">
+      <div class="label" style="margin-bottom:6px">Správy</div>
+      <div id="news-list"></div>
+    </div>
+  </section>
+
+  <!-- LEARNING -->
+  <section class="view" id="v-learning">
+    <div class="card">
+      <div class="label" style="margin-bottom:6px">Registry ML modelov</div>
+      <div style="overflow-x:auto"><table id="tbl-models"></table></div>
+      <p class="small">Kandidát sa aktivuje až po walk-forward validácii a paper teste
+        (<span class="mono">python -m argus.ml --activate N</span>); rollback:
+        <span class="mono">python -m argus.ml --rollback</span>.</p>
+    </div>
+  </section>
+
+  <!-- STRATEGY MANAGER -->
+  <section class="view" id="v-strategies">
+    <div class="card">
+      <div class="label" style="margin-bottom:6px">Stratégie a ich výkonnosť (z vlastných obchodov)</div>
+      <div style="overflow-x:auto"><table id="tbl-strategies"></table></div>
+      <p class="small">Stratégia s profit factorom pod 1.0 na vzorke ≥ 30 obchodov sa
+        automaticky vypne z rozhodovania; opäť sa zapne, keď nové štatistiky prejdú.
+        Výber stratégie pre konkrétny obchod riadi aktuálny trhový režim.</p>
+    </div>
+  </section>
+
+  <!-- RISK MANAGEMENT -->
+  <section class="view" id="v-risk">
+    <div class="grid2">
+      <div class="col-main">
+        <div class="card">
+          <div class="label" style="margin-bottom:10px">Denné čerpanie limitov</div>
+          <div id="risk-usage"></div>
+        </div>
+        <div class="card">
+          <div class="label" style="margin-bottom:6px">Pevné limity (vynucované nezávisle od AI)</div>
+          <div id="risk-limits"></div>
+        </div>
+      </div>
+      <div class="col-side">
+        <div class="card">
+          <div class="label" style="margin-bottom:6px">Ochrana pozícií</div>
+          <div id="risk-trailing" class="small"></div>
+        </div>
+        <div class="card">
+          <div class="label" style="margin-bottom:6px">Stav</div>
+          <div id="risk-halt" class="small"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="view" id="v-settings">
+    <div class="card">
+      <div class="label" style="margin-bottom:6px">Konfigurácia enginu</div>
+      <div id="settings-list"></div>
+      <p class="small" id="settings-note"></p>
+    </div>
+  </section>
+
+  <!-- SYSTEM -->
+  <section class="view" id="v-system">
+    <div class="grid2">
+      <div class="col-main">
+        <div class="card">
+          <div class="label" style="margin-bottom:6px">Audit log</div>
+          <div id="audit"></div>
+        </div>
+      </div>
+      <div class="col-side">
+        <div class="card">
+          <div class="label" style="margin-bottom:6px">Komponenty</div>
+          <div id="health"></div>
+        </div>
+        <div class="card">
+          <div class="label" style="margin-bottom:6px">Pripravenosť na live trading</div>
+          <div id="readiness"></div>
+          <p class="small" id="readiness-note"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmtEur = (v) => v==null ? "—" : (v>=0?"+":"") + Number(v).toFixed(2) + " €";
+const cls = (v) => v==null ? "" : (v>=0 ? "profit" : "loss");
+const esc = (s) => { const d=document.createElement("div"); d.textContent=s??""; return d.innerHTML; };
+async function api(p){ const r = await fetch(p); if(!r.ok) throw new Error(r.status); return r.json(); }
+
+// --- navigation ---
+document.querySelectorAll("nav a").forEach(a => a.onclick = (e) => {
+  e.preventDefault();
+  document.querySelectorAll("nav a").forEach(x => x.classList.toggle("active", x===a));
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  $("v-" + a.dataset.v).classList.add("active");
+  if (a.dataset.v === "dash") setTimeout(() => chart && chart.timeScale().fitContent(), 50);
+});
+
+setInterval(() => $("clock").textContent = new Date().toLocaleTimeString("sk-SK"), 1000);
+
+// --- chart + indicators (Binance-style overlays) ---
+let chart = null, candleSeries = null, subChart = null;
+const overlaySeries = {};   // key -> line series on the price chart
+let subSeries = [];         // series currently on the sub chart
+const INDICATORS = [
+  {key:"ema9",   label:"EMA 9",   color:"#F0B13F", pane:"main", on:true},
+  {key:"ema21",  label:"EMA 21",  color:"#5B8CFF", pane:"main", on:true},
+  {key:"ema50",  label:"EMA 50",  color:"#8F7BFF", pane:"main", on:false},
+  {key:"ema200", label:"EMA 200", color:"#C6CEDE", pane:"main", on:false},
+  {key:"vwap",   label:"VWAP",    color:"#F6567A", pane:"main", on:true, dashed:true},
+  {key:"bb",     label:"Bollinger", color:"#5E6880", pane:"main", on:false},
+  {key:"rsi",    label:"RSI 14",  color:"#8F7BFF", pane:"sub",  on:true},
+  {key:"macd",   label:"MACD",    color:"#5B8CFF", pane:"sub",  on:false},
+];
+const indState = JSON.parse(localStorage.getItem("argus_ind") || "null") ||
+  Object.fromEntries(INDICATORS.map(i => [i.key, i.on]));
+
+function renderToggles(){
+  $("ind-toggles").innerHTML = INDICATORS.map(i =>
+    `<button data-ind="${i.key}" style="padding:4px 10px;font-size:11px;border-radius:7px;
+      background:${indState[i.key] ? "rgba(91,140,255,.15)" : "var(--inset)"};
+      border:1px solid ${indState[i.key] ? "rgba(91,140,255,.5)" : "var(--line)"};
+      color:${indState[i.key] ? i.color : "var(--muted)"}">${i.label}</button>`).join("");
+  document.querySelectorAll("#ind-toggles button").forEach(b => b.onclick = () => {
+    const k = b.dataset.ind;
+    if (k === "rsi" && !indState.rsi) indState.macd = false;   // sub pane: one at a time
+    if (k === "macd" && !indState.macd) indState.rsi = false;
+    indState[k] = !indState[k];
+    localStorage.setItem("argus_ind", JSON.stringify(indState));
+    renderToggles(); loadChart();
+  });
+}
+
+function initChart(){
+  if (typeof LightweightCharts === "undefined") {
+    $("chart-err").textContent = "Graf vyžaduje internet (CDN lightweight-charts). Dáta bežia ďalej.";
+    return;
+  }
+  const opts = {
+    layout: {background: {color: "transparent"}, textColor: "#98A2B8",
+             fontFamily: "'JetBrains Mono', monospace", fontSize: 11},
+    grid: {vertLines: {color: "#1B2130"}, horzLines: {color: "#1B2130"}},
+    rightPriceScale: {borderColor: "#242C40"},
+    timeScale: {borderColor: "#242C40", timeVisible: true, secondsVisible: false},
+    autoSize: true,
+  };
+  chart = LightweightCharts.createChart($("chart"), opts);
+  candleSeries = chart.addCandlestickSeries({
+    upColor: "#35D49B", downColor: "#F6567A", wickUpColor: "#35D49B",
+    wickDownColor: "#F6567A", borderVisible: false});
+  subChart = LightweightCharts.createChart($("chart-sub"), {...opts,
+    timeScale: {...opts.timeScale, visible: false}});
+  // keep both panes time-synced
+  chart.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    if (r) subChart.timeScale().setVisibleLogicalRange(r); });
+  subChart.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    if (r) chart.timeScale().setVisibleLogicalRange(r); });
+  renderToggles();
+}
+
+const seriesData = (ts, vals) => ts.map((t, i) => vals[i] == null ? null :
+  ({time: t, value: vals[i]})).filter(Boolean);
+
+function overlay(key, color, dashed){
+  if (!overlaySeries[key]) overlaySeries[key] = chart.addLineSeries({
+    color, lineWidth: key.startsWith("bb") ? 1 : 2,
+    lineStyle: dashed ? 2 : 0, priceLineVisible: false,
+    lastValueVisible: false, crosshairMarkerVisible: false});
+  return overlaySeries[key];
+}
+function clearSub(){
+  for (const s of subSeries) subChart.removeSeries(s);
+  subSeries = [];
+}
+
+async function loadChart(){
+  const sym = $("sel-symbol").value, tf = $("sel-tf").value;
+  if (!sym || !candleSeries) return;
+  try {
+    const [d, ind] = await Promise.all([
+      api(`/api/candles/${sym}/${tf}?limit=400`),
+      api(`/api/indicators/${sym}/${tf}?limit=400`)]);
+    candleSeries.setData(d.candles.map(c => ({time: c.ts, open: c.open,
+      high: c.high, low: c.low, close: c.close})));
+    const last = d.candles.at(-1);
+    $("chart-sym").textContent = sym + " · " + tf;
+    $("chart-price").textContent = last ? last.close : "";
+
+    // price-pane overlays
+    for (const i of INDICATORS.filter(x => x.pane === "main")){
+      const keys = i.key === "bb" ? ["bb_upper","bb_mid","bb_lower"] : [i.key];
+      for (const k of keys){
+        const s = overlay(i.key === "bb" ? "bb_" + k : i.key, i.color, i.dashed || k === "bb_bb_mid");
+        s.setData(indState[i.key] && ind.ts ? seriesData(ind.ts, ind[k] || []) : []);
+      }
+    }
+    // sub pane: RSI or MACD
+    clearSub();
+    const wantSub = indState.rsi || indState.macd;
+    $("chart-sub").style.display = wantSub ? "block" : "none";
+    if (wantSub && ind.ts){
+      if (indState.rsi){
+        const s = subChart.addLineSeries({color: "#8F7BFF", lineWidth: 2,
+          priceLineVisible: false, lastValueVisible: true});
+        s.setData(seriesData(ind.ts, ind.rsi));
+        for (const lvl of [30, 70]) s.createPriceLine({price: lvl, color: "#2E3850",
+          lineWidth: 1, lineStyle: 2, axisLabelVisible: false});
+        subSeries.push(s);
+      } else if (indState.macd){
+        const h = subChart.addHistogramSeries({priceLineVisible: false});
+        h.setData(ind.ts.map((t, i) => ind.macd_hist[i] == null ? null :
+          ({time: t, value: ind.macd_hist[i],
+            color: ind.macd_hist[i] >= 0 ? "rgba(53,212,155,.6)" : "rgba(246,86,122,.6)"}))
+          .filter(Boolean));
+        const l1 = subChart.addLineSeries({color: "#5B8CFF", lineWidth: 2,
+          priceLineVisible: false, lastValueVisible: false});
+        l1.setData(seriesData(ind.ts, ind.macd));
+        const l2 = subChart.addLineSeries({color: "#F0B13F", lineWidth: 1,
+          priceLineVisible: false, lastValueVisible: false});
+        l2.setData(seriesData(ind.ts, ind.macd_signal));
+        subSeries.push(h, l1, l2);
+      }
+    }
+    chart.timeScale().fitContent();
+
+    // numeric indicator strip (last values)
+    const lastOf = (a) => { if (!a) return null; for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return a[i]; return null; };
+    const atr = lastOf(ind.atr), adx = lastOf(ind.adx), rsiV = lastOf(ind.rsi);
+    const pdi = lastOf(ind.plus_di), mdi = lastOf(ind.minus_di);
+    const atrPct = (atr != null && last) ? (atr / last.close * 100) : null;
+    $("ind-values").innerHTML = [
+      rsiV != null ? `RSI <b class="${rsiV >= 70 ? "loss" : (rsiV <= 30 ? "profit" : "")}">${rsiV.toFixed(1)}</b>` : "",
+      atr != null ? `ATR ${atr.toFixed(2)}${atrPct != null ? " (" + atrPct.toFixed(2) + "%)" : ""}` : "",
+      adx != null ? `ADX <b class="${adx >= 25 ? "profit" : ""}">${adx.toFixed(1)}</b>` : "",
+      (pdi != null && mdi != null) ? `+DI <span class="profit">${pdi.toFixed(1)}</span> / −DI <span class="loss">${mdi.toFixed(1)}</span>` : "",
+      lastOf(ind.ema21) != null ? `EMA21 ${lastOf(ind.ema21).toFixed(2)}` : "",
+      lastOf(ind.vwap) != null ? `VWAP ${lastOf(ind.vwap).toFixed(2)}` : "",
+    ].filter(Boolean).map(x => `<span>${x}</span>`).join("");
+  } catch(e){ $("chart-err").textContent = "Chyba načítania grafu: " + e.message; }
+}
+
+// --- controls ---
+async function cmd(action){
+  try {
+    const r = await fetch("/api/control", {method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({action, command_id: "ui-" + Date.now()})});
+    const d = await r.json();
+    if (!d.ok) alert("Zamietnuté: " + (d.error || "?"));
+    refresh();
+  } catch(e){ alert("Chyba: " + e.message); }
+}
+
+// --- refresh loops ---
+let symbolsInit = false;
+async function refresh(){
+  try {
+    const [status, health, portfolio] = await Promise.all([
+      api("/api/status"), api("/api/health"), api("/api/portfolio")]);
+    lastPortfolio = portfolio;
+
+    const ok = health.overall === "ok";
+    const pe = $("pill-engine");
+    pe.className = "pill " + (ok ? "ok" : (health.overall === "degraded" ? "warn" : "bad"));
+    $("engine-text").textContent = "ENGINE " + health.overall.toUpperCase();
+    $("pill-mode").textContent = (status.mode || "paper").toUpperCase();
+    $("pill-state").textContent = "Stav: " + (portfolio.bot_state || "—").toUpperCase();
+
+    if (!symbolsInit && status.symbols && status.symbols.length){
+      symbolsInit = true;
+      $("sel-symbol").innerHTML = status.symbols.map(s => `<option>${esc(s)}</option>`).join("");
+      loadChart();
+    }
+
+    $("stats").innerHTML = [
+      ["Kapitál", portfolio.equity != null ? portfolio.equity.toFixed(2) + " €" : "—", ""],
+      ["Denný P/L", fmtEur(portfolio.day_pl), cls(portfolio.day_pl)],
+      ["Celkový P/L", fmtEur(portfolio.total_pl), cls(portfolio.total_pl)],
+      ["Obchody dnes", portfolio.trades_today ?? "—", ""],
+      ["Otvorené pozície", (portfolio.open_positions||[]).length, ""],
+    ].map(([k,v,c]) => `<div class="stat"><span class="label">${k}</span>
+      <span class="v ${c}">${v}</span></div>`).join("");
+
+    const pos = portfolio.open_positions || [];
+    $("tbl-pos").innerHTML = "<tr><th>Inštrument</th><th>Smer</th><th>Množstvo</th><th>Vstup</th><th>Aktuálne</th><th>SL</th><th>TP</th><th>Stratégia</th><th style='text-align:right'>P/L</th></tr>" +
+      (pos.length ? pos.map(o => `<tr class="mono">
+        <td style="font-family:Inter;font-weight:600">${esc(o.symbol)}</td>
+        <td><span class="tag ${o.direction==="LONG"?"long":"short"}">${o.direction}</span></td>
+        <td>${o.quantity}</td><td>${o.entry}</td><td>${o.last_price ?? "—"}</td>
+        <td class="loss">${o.stop_loss}</td><td class="profit">${o.take_profit}</td>
+        <td style="font-family:Inter;color:var(--text2)">${esc(o.strategy)}</td>
+        <td style="text-align:right" class="${cls(o.unrealized_pl)}">${fmtEur(o.unrealized_pl)}</td></tr>`).join("")
+      : `<tr><td colspan="9" class="small">Žiadne otvorené pozície.</td></tr>`);
+
+    $("health").innerHTML = (health.components||[]).map(c =>
+      `<div class="list-item"><span>${esc(c.name)}</span><span class="spacer"></span>
+       <span class="${c.status==="ok"?"profit":(c.status==="degraded"?"warn":"loss")}">${c.status}</span>
+       <span class="small">${esc(c.detail||"")}</span></div>`).join("");
+  } catch(e){
+    const pe = $("pill-engine"); pe.className = "pill bad";
+    $("engine-text").textContent = "ENGINE OFFLINE";
+  }
+}
+
+async function refreshSlow(){
+  try {
+    const [trades, decisions, news, models, audit, events, strategies, risk, config] =
+      await Promise.all([
+      api("/api/trades?limit=200"), api("/api/decisions?limit=40"),
+      api("/api/news?limit=40"), api("/api/models"),
+      api("/api/audit?limit=80"), api("/api/events"),
+      api("/api/strategies"), api("/api/risk"), api("/api/config")]);
+    const readiness = await api("/api/readiness");
+
+    $("readiness").innerHTML = (readiness.checks||[]).map(ch =>
+      `<div class="list-item"><span class="${ch.passed ? "profit" : "loss"}"
+         style="flex:none;font-weight:700">${ch.passed ? "OK" : "×"}</span>
+       <span class="small" style="flex:1">${esc(ch.name)}</span>
+       <span class="mono small">${esc(ch.value)} <span style="color:var(--muted)">(${esc(ch.required)})</span></span></div>`
+    ).join("") + `<div class="list-item"><b class="${readiness.ready ? "profit" : "warn"}">
+      ${readiness.ready ? "Kritériá splnené — live vyžaduje už len výslovné povolenie."
+                        : "Zatiaľ nesplnené — live trading ostáva zamknutý."}</b></div>`;
+    $("readiness-note").textContent = readiness.note || "";
+
+    renderEquityCurve(trades.trades || []);
+
+    $("tbl-strategies").innerHTML = "<tr><th>Stratégia</th><th>Stav</th><th>Vhodné režimy</th><th>Obchody</th><th>Win rate</th><th>PF (R)</th><th>Expectancy (R)</th></tr>" +
+      ((strategies.strategies||[]).map(s => `<tr>
+        <td style="font-weight:600">${esc(s.name)}</td>
+        <td><span class="${s.enabled ? "profit" : "loss"}">${s.enabled ? "aktívna" : "vypnutá"}</span></td>
+        <td class="small">${(s.suited_regimes||[]).join(", ")}</td>
+        <td class="mono">${s.n}</td>
+        <td class="mono">${s.win_rate != null ? (s.win_rate*100).toFixed(0)+"%" : "—"}</td>
+        <td class="mono ${s.profit_factor_r != null ? (s.profit_factor_r >= 1 ? "profit" : "loss") : ""}">${s.profit_factor_r != null ? s.profit_factor_r.toFixed(2) : "—"}</td>
+        <td class="mono">${s.expectancy_r != null ? s.expectancy_r.toFixed(2) : "—"}</td></tr>`).join("")
+       || `<tr><td colspan="7" class="small">Žiadne stratégie.</td></tr>`);
+
+    if (risk.available){
+      const L = risk.limits, U = risk.usage || {};
+      const bar = (label, used, max, fmt, danger) => {
+        const pct = max ? Math.min(100, Math.max(0, used / max * 100)) : 0;
+        return `<div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span>${label}</span><span class="mono">${fmt}</span></div>
+          <div class="scorebar"><div style="width:${pct}%;${danger && pct >= 80 ? "background:var(--loss)" : ""}"></div></div>
+        </div>`;
+      };
+      const dd = Math.max(0, -(U.daily_pl_pct || 0));
+      $("risk-usage").innerHTML =
+        bar("Denný pokles", dd, L.daily_max_loss_pct, `${(U.daily_pl_pct ?? 0).toFixed(2)}% / −${L.daily_max_loss_pct}%`, true) +
+        bar("Otvorené pozície", U.open_positions || 0, L.max_open_positions, `${U.open_positions ?? 0} / ${L.max_open_positions}`) +
+        bar("Obchody dnes", U.trades_today || 0, L.max_daily_trades, `${U.trades_today ?? 0} / ${L.max_daily_trades}`) +
+        bar("Otvorené riziko", U.open_risk_pct || 0, L.daily_max_loss_pct, `${(U.open_risk_pct ?? 0).toFixed(2)}% / ${L.daily_max_loss_pct}%`, true);
+      $("risk-limits").innerHTML = [
+        ["Riziko na obchod", L.risk_per_trade_pct + "% (strop " + L.max_risk_per_trade_pct + "%)"],
+        ["Denný limit straty", "−" + L.daily_max_loss_pct + "%"],
+        ["Minimálny risk/reward", L.min_rr],
+        ["Max. spread", L.max_spread_pct + "%"],
+        ["Max. veľkosť pozície", L.max_position_notional_pct + "% kapitálu"],
+        ["Povinný stop loss", "áno (bez SL žiadny obchod)"],
+        ["Martingale / navyšovanie po strate", "zakázané"],
+      ].map(([k,v]) => `<div class="list-item"><span class="small">${k}</span>
+        <span class="spacer"></span><span class="mono">${v}</span></div>`).join("");
+      const T = risk.trailing || {};
+      $("risk-trailing").innerHTML = T.enabled
+        ? `Break-even: SL na vstup pri <b class="mono">+${T.break_even_at_r}R</b><br>
+           Trailing: od <b class="mono">+${T.trail_start_r}R</b> vo vzdialenosti
+           <b class="mono">${T.trail_distance_r}R</b> za cenou<br>
+           <span style="color:var(--muted)">Stop sa nikdy nerozširuje.</span>`
+        : "Trailing/break-even vypnuté.";
+      $("risk-halt").innerHTML = risk.halted
+        ? `<span class="loss">OBCHODOVANIE ZASTAVENÉ</span><br>${esc(risk.halt_reason || "")}`
+        : `<span class="profit">Limity v poriadku, vstupy povolené.</span>`;
+    }
+
+    if (config.available){
+      $("settings-list").innerHTML = Object.entries(config.config).map(([k,v]) =>
+        `<div class="list-item"><span class="small">${esc(k)}</span><span class="spacer"></span>
+         <span class="mono">${esc(Array.isArray(v) ? v.join(", ") : String(v))}</span></div>`).join("");
+      $("settings-note").textContent = config.note || "";
+    }
+
+    $("tbl-trades").innerHTML = "<tr><th>Čas</th><th>Inštrument</th><th>Smer</th><th>Stratégia</th><th>Vstup</th><th>Výstup</th><th>Dôvod výstupu</th><th style='text-align:right'>P/L</th></tr>" +
+      ((trades.trades||[]).map(t => `<tr class="mono">
+        <td>${esc((t.exit_ts||"").replace("T"," ").slice(0,16))}</td>
+        <td style="font-family:Inter;font-weight:600">${esc(t.symbol)}</td>
+        <td><span class="tag ${t.direction==="LONG"?"long":"short"}">${t.direction}</span></td>
+        <td style="font-family:Inter;color:var(--text2)">${esc(t.strategy)}</td>
+        <td>${t.entry}</td><td>${t.exit}</td>
+        <td style="font-family:Inter;color:var(--text2)">${esc(t.exit_reason||"")}</td>
+        <td style="text-align:right" class="${cls(t.pl)}">${fmtEur(t.pl)}</td></tr>`).join("")
+       || `<tr><td colspan="8" class="small">Zatiaľ žiadne obchody.</td></tr>`);
+
+    const decHtml = (list) => list.map(d => {
+      const det = d.detail || {}; const best = det.best || {};
+      const sig = best.signal || {};
+      return `<div class="list-item" style="flex-direction:column;align-items:stretch;gap:6px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="time">${esc((d.ts||"").replace("T"," ").slice(5,16))}</span>
+          <b>${esc(d.symbol)}</b><span class="small">${esc(d.strategy||"")}</span>
+          <span class="spacer"></span>
+          <span class="mono ${d.verdict==="enter"?"profit":(d.verdict==="veto"?"loss":"warn")}">${esc(d.verdict)} · ${Math.round(d.score||0)}</span>
+        </div>
+        <div class="scorebar"><div style="width:${Math.round(d.score||0)}%"></div></div>
+        ${sig.reasons ? `<div class="small">${esc(sig.reasons.join(" · "))}</div>` : ""}
+        ${det.risk && det.risk.vetoes && det.risk.vetoes.length ?
+          `<div class="small loss">Veto: ${esc(det.risk.vetoes.join("; "))}</div>` : ""}
+        ${(det.notes||[]).length ? `<div class="small">${esc(det.notes.join("; "))}</div>` : ""}
+      </div>`;}).join("") || `<div class="small">Zatiaľ žiadne vyhodnotenia (čakám na uzáver 5m sviečky s dostatočnou históriou).</div>`;
+
+    $("ai-decisions").innerHTML = decHtml(decisions.decisions || []);
+    $("dash-decisions").innerHTML = decHtml((decisions.decisions || []).slice(0, 4));
+
+    $("news-list").innerHTML = (news.news||[]).map(n =>
+      `<div class="list-item"><span class="time">${esc((n.ts||"").slice(11,16))}</span>
+       <div><div style="color:var(--soft);line-height:1.45">${esc(n.title)}</div>
+       <div class="small" style="font-size:10.5px">${esc(n.source||"")} · ${(n.instruments||[]).join(", ")}
+       ${n.sentiment > 0.2 ? '<span class="profit">pozitívne</span>' :
+         (n.sentiment < -0.2 ? '<span class="loss">negatívne</span>' : "neutrálne")}</div></div></div>`
+    ).join("") || `<div class="small">Žiadne správy.</div>`;
+
+    $("dash-sentiment").innerHTML = Object.entries(news.sentiment||{}).map(([k,v]) =>
+      `<div class="list-item"><span>${esc(k)}</span><span class="spacer"></span>
+       <span class="mono ${v>=0.1?"profit":(v<=-0.1?"loss":"")}">${v.toFixed(2)}</span></div>`
+    ).join("") || "Neutrálne / bez dát.";
+
+    $("dash-events").innerHTML = (events.events||[]).slice(0,5).map(e =>
+      `<div class="list-item"><span class="time">${esc((e.ts||"").replace("T"," ").slice(5,16))}</span>
+       <span>${esc(e.name)}</span><span class="spacer"></span>
+       <span class="${e.importance==="high"?"warn":""}">${esc(e.importance)}</span></div>`
+    ).join("") || "Žiadne naplánované udalosti (import: docs).";
+
+    $("tbl-models").innerHTML = "<tr><th>Model</th><th>Verzia</th><th>Úloha</th><th>Vzorky</th><th>Metriky</th><th>Stav</th></tr>" +
+      ((models.models||[]).map(m => `<tr>
+        <td style="font-weight:600">${esc(m.name)}</td><td class="mono">v${m.version}</td>
+        <td class="small">${esc(m.task)}</td><td class="mono">${m.n_samples}</td>
+        <td class="small mono">${m.metrics && m.metrics.mean_auc != null ? "AUC " + m.metrics.mean_auc : ""}</td>
+        <td><span class="${m.active?"profit":(m.status==="rejected"?"loss":"warn")}">${esc(m.status)}${m.active?" · aktívny":""}</span></td></tr>`).join("")
+       || `<tr><td colspan="6" class="small">Žiadne modely. Tréning: <span class="mono">python -m argus.ml</span></td></tr>`);
+
+    $("audit").innerHTML = (audit.entries||[]).map(a =>
+      `<div class="list-item"><span class="time">${esc((a.ts||"").replace("T"," ").slice(5,19))}</span>
+       <span class="${a.severity==="critical"||a.severity==="error"?"loss":(a.severity==="warning"?"warn":"")}"
+       style="flex:none;font-size:10px;font-weight:700">${esc(a.category)}</span>
+       <span class="small" style="color:var(--soft)">${esc(a.message)}</span></div>`).join("");
+  } catch(e){ /* engine offline; fast loop shows it */ }
+}
+
+// --- equity curve (from closed trades) ---
+let eqChart = null, eqSeries = null;
+function renderEquityCurve(trades){
+  if (typeof LightweightCharts === "undefined") return;
+  if (!eqChart){
+    eqChart = LightweightCharts.createChart($("equity-chart"), {
+      layout: {background: {color: "transparent"}, textColor: "#98A2B8",
+               fontFamily: "'JetBrains Mono', monospace", fontSize: 11},
+      grid: {vertLines: {color: "#1B2130"}, horzLines: {color: "#1B2130"}},
+      rightPriceScale: {borderColor: "#242C40"},
+      timeScale: {borderColor: "#242C40", timeVisible: true},
+      autoSize: true});
+    eqSeries = eqChart.addAreaSeries({
+      lineColor: "#5B8CFF", lineWidth: 2,
+      topColor: "rgba(91,140,255,.30)", bottomColor: "rgba(91,140,255,0)",
+      priceLineVisible: false});
+  }
+  const asc = [...trades].reverse().filter(t => t.exit_ts && t.pl != null);
+  // start equity = current equity minus total P/L (when portfolio is known)
+  let equity = 10000;
+  const p = lastPortfolio;
+  if (p && p.equity != null && p.total_pl != null) equity = p.equity - p.total_pl;
+  const pts = [];
+  const seen = new Set();
+  for (const t of asc){
+    equity += t.pl;
+    let ts = Math.floor(new Date(t.exit_ts).getTime() / 1000);
+    while (seen.has(ts)) ts += 1;   // lightweight-charts needs unique ascending times
+    seen.add(ts);
+    pts.push({time: ts, value: Math.round(equity * 100) / 100});
+  }
+  eqSeries.setData(pts);
+  if (pts.length) eqChart.timeScale().fitContent();
+}
+let lastPortfolio = null;
+
+// --- live updates over websocket (fallback: polling alone) ---
+function connectWs(){
+  try {
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = (m) => {
+      const ev = JSON.parse(m.data);
+      if (ev.type === "trade" || ev.type === "bot_state" || ev.type === "decision") refresh();
+      if (ev.type === "candle" && candleSeries) {
+        const c = ev.data;
+        if (c.symbol === $("sel-symbol").value && c.timeframe === $("sel-tf").value){
+          candleSeries.update({time: c.ts, open: c.open, high: c.high, low: c.low, close: c.close});
+          if (c.complete) loadChart();   // refresh indicator overlays on bar close
+        }
+      }
+    };
+    ws.onclose = () => setTimeout(connectWs, 5000);
+  } catch(e){ setTimeout(connectWs, 5000); }
+}
+
+initChart();
+refresh(); refreshSlow();
+setInterval(refresh, 5000);
+setInterval(refreshSlow, 15000);
+connectWs();
+</script>
+</body>
+</html>
