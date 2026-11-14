@@ -1,6 +1,6 @@
 @echo off
-rem ARGUS - one-click setup and start for Windows.
-rem First run creates .venv and installs everything; later runs just start.
+rem ARGUS - setup and start for Windows (dev mode).
+rem Normal users: use the installer ARGUS-setup.exe from GitHub Releases.
 cd /d "%~dp0"
 
 if not exist .venv (
@@ -11,14 +11,15 @@ if not exist .venv (
         pause
         exit /b 1
     )
-    echo [ARGUS] Instalujem zavislosti ^(prvykrat to trva par minut^)...
-    .venv\Scripts\python -m pip install --upgrade pip >nul
-    .venv\Scripts\pip install -e ".[dev,desktop]"
-    if errorlevel 1 (
-        echo [ARGUS] Instalacia zlyhala, pozri chybu vyssie.
-        pause
-        exit /b 1
-    )
+)
+
+echo [ARGUS] Kontrolujem zavislosti...
+.venv\Scripts\python -m pip install --quiet --upgrade pip
+.venv\Scripts\pip install --quiet -e ".[dev,desktop]"
+if errorlevel 1 (
+    echo [ARGUS] Instalacia zlyhala, pozri chybu vyssie.
+    pause
+    exit /b 1
 )
 
 if "%1"=="test" (
@@ -34,3 +35,4 @@ if "%1"=="engine" (
 
 rem default: desktop window with tray icon (starts the engine itself)
 start "" .venv\Scripts\pythonw desktop\argus_shell.py
+echo [ARGUS] Spustam okno... Ak sa do minuty neukaze, spusti: start-argus.bat engine

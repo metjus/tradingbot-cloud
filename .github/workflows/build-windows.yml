@@ -1,0 +1,93 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write   # publish the installer to the "latest" release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,desktop]" pyinstaller
+
+      - name: Run tests on Windows
+        run: python -m pytest -q
+
+      - name: Build ARGUS.exe (PyInstaller)
+        run: >
+          pyinstaller --noconfirm --clean --name ARGUS --windowed
+          --icon desktop/argus.ico
+          --add-data "argus/ui;argus/ui"
+          --collect-submodules argus
+          --hidden-import argus.__main__
+          desktop/argus_shell.py
+
+      - name: Smoke-test the frozen engine
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist/ARGUS/ARGUS.exe" -ArgumentList "--engine" -PassThru
+          $ok = $false
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 2
+            try {
+              $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:7421/api/health" -TimeoutSec 3
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch {}
+            if ($p.HasExited) { break }
+          }
+          if (-not $ok) {
+            Write-Host "engine did not come up; log follows:"
+            Get-Content "$env:APPDATA/ARGUS/logs/argus.log" -ErrorAction SilentlyContinue
+            exit 1
+          }
+          $html = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:7421/app/").Content
+          if ($html -notmatch "ARGUS") { Write-Host "UI page missing"; exit 1 }
+          Stop-Process -Id $p.Id -Force
+          Write-Host "frozen engine OK"
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          $version = "1.0.$($env:GITHUB_RUN_NUMBER)"
+          & $iscc "/DAppVersion=$version" desktop/argus.iss
+          Get-Item dist/ARGUS-setup.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ARGUS-setup
+          path: dist/ARGUS-setup.exe
+
+      - name: Publish to "latest" release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "1.0.$($env:GITHUB_RUN_NUMBER)"
+          gh release delete latest --yes 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "no previous release" }
+          git push origin :refs/tags/latest 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "no previous tag" }
+          gh release create latest dist/ARGUS-setup.exe `
+            --title "ARGUS $version" `
+            --notes "Inštalátor pre Windows 11. Stiahni ARGUS-setup.exe, spusti a nainštaluj. Build z commitu $env:GITHUB_SHA."
+          exit 0
