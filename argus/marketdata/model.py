@@ -48,6 +48,20 @@ class Tick:
     volume: float
     ts: float  # epoch seconds, may be fractional
     source: str = ""
+    bid: float | None = None
+    ask: float | None = None
+
+    @property
+    def spread_pct(self) -> float | None:
+        if self.bid and self.ask and self.ask >= self.bid:
+            mid = (self.bid + self.ask) / 2.0
+            return (self.ask - self.bid) / mid * 100.0 if mid > 0 else None
+        return None
+
+    def as_dict(self) -> dict:
+        return {"symbol": self.symbol, "price": self.price, "ts": self.ts,
+                "bid": self.bid, "ask": self.ask, "spread_pct": self.spread_pct,
+                "source": self.source}
 
 
 @dataclass(slots=True)

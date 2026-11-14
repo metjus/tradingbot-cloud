@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     crypto_symbols: list[str] = ["BTC/USD", "ETH/USD"]
     stock_symbols: list[str] = []
     candle_poll_seconds: float = 10.0  # REST fallback poll interval
+    tick_seconds: float = 2.0          # real-time price (ticker) interval
     stale_after_seconds: float = 90.0  # data older than this => STALE health
 
     # --- Alpaca (optional; paper by default) ---

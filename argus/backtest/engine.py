@@ -208,3 +208,15 @@ class Backtester:
                 res.equity_curve.append(equity)
 
         return res
+
+
+def realistic_backtester(fee_venue: str = "binance", slippage_pct: float = 0.02,
+                         allow_short: bool = False, **kw) -> Backtester:
+    """Backtester with the SAME cost model and short rule as live/paper:
+    venue taker fee per side, slippage, net-of-cost reward/risk checks."""
+    from ..fees import round_trip_cost_pct, venue
+    from ..risk import RiskLimits
+    limits = RiskLimits(round_trip_cost_pct=round_trip_cost_pct(fee_venue, "taker", slippage_pct),
+                        allow_short=allow_short, min_rr=1.3)
+    return Backtester(decision_engine=DecisionEngine(RiskSupervisor(limits)),
+                      fee_pct=venue(fee_venue).taker_pct, slippage_pct=slippage_pct, **kw)

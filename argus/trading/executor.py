@@ -19,12 +19,13 @@ import logging
 from datetime import datetime, timezone
 
 from ..analysis.service import DECISION_EVENT
-from ..core.events import CANDLE, EventBus
+from ..core.events import CANDLE, TICK, EventBus
 from ..db.database import Database
 from ..marketdata.model import Candle, Timeframe
 from ..monitoring.health import HealthMonitor, Status
 from ..risk import RiskSupervisor
 from .broker import BrokerAdapter, BracketOrder, Fill, PaperBroker, new_client_order_id
+from .exits import ExitParams, evaluate_exit
 from .hours import can_enter, must_flatten
 from .portfolio import Portfolio
 
@@ -38,20 +39,24 @@ class ExecutionService:
     def __init__(self, db: Database, bus: EventBus, health: HealthMonitor,
                  broker: BrokerAdapter, portfolio: Portfolio,
                  risk: RiskSupervisor, trailing_enabled: bool = True,
-                 break_even_at_r: float = 1.0, trail_start_r: float = 1.5,
-                 trail_distance_r: float = 1.0) -> None:
+                 break_even_at_r: float = 0.8, trail_start_r: float = 1.2,
+                 trail_distance_r: float = 0.8,
+                 exit_params: ExitParams | None = None) -> None:
         self._db = db
         self._bus = bus
         self._health = health
         self.broker = broker
         self.portfolio = portfolio
         self.risk = risk
-        self.trailing_enabled = trailing_enabled
-        self.break_even_at_r = break_even_at_r
-        self.trail_start_r = trail_start_r
-        self.trail_distance_r = trail_distance_r
+        self.exit_params = exit_params or ExitParams(
+            enabled=trailing_enabled, break_even_at_r=break_even_at_r,
+            trail_start_r=trail_start_r, trail_distance_r=trail_distance_r)
+        #: callables set by the engine: symbol -> float|None / Regime|None
+        self.sentiment_provider = None
+        self.regime_provider = None
         self.state = "running"
         self._pending_entry: dict[str, dict] = {}   # client_order_id -> decision detail
+        self._closing: set[str] = set()             # close requested, awaiting fill
         self._processed_commands: set[str] = set()
         self._tasks: list[asyncio.Task] = []
         broker.on_fill = self._on_fill
@@ -61,9 +66,15 @@ class ExecutionService:
     # --- lifecycle ------------------------------------------------------------
     def start(self) -> None:
         loop = asyncio.get_running_loop()
+        # subscribe synchronously so no event published right after start()
+        # is lost before the loop tasks get scheduled
+        self._q_decisions = self._bus.subscribe(DECISION_EVENT)
+        self._q_candles = self._bus.subscribe(CANDLE)
+        self._q_ticks = self._bus.subscribe(TICK)
         self._tasks = [
             loop.create_task(self._decision_loop(), name="exec-decisions"),
             loop.create_task(self._candle_loop(), name="exec-candles"),
+            loop.create_task(self._tick_loop(), name="exec-ticks"),
             loop.create_task(self._session_loop(), name="exec-sessions"),
         ]
 
@@ -73,7 +84,7 @@ class ExecutionService:
 
     # --- event loops ------------------------------------------------------
     async def _decision_loop(self) -> None:
-        q = self._bus.subscribe(DECISION_EVENT)
+        q = self._q_decisions
         while True:
             ev = await q.get()
             d = ev.data
@@ -86,51 +97,62 @@ class ExecutionService:
                 self._db.audit("trade", f"Entry failed: {exc}", "error", d)
 
     async def _candle_loop(self) -> None:
-        q = self._bus.subscribe(CANDLE)
+        q = self._q_candles
         while True:
             ev = await q.get()
             bar: Candle = ev.data
             if bar.timeframe is not Timeframe.M1:
                 continue
-            if isinstance(self.broker, PaperBroker):
+            if isinstance(self.broker, PaperBroker) or hasattr(self.broker, "on_candle"):
                 self.broker.on_candle(bar)
             self.portfolio.mark_price(bar.symbol, bar.close)
-            if self.trailing_enabled:
-                self._manage_stops(bar.symbol, bar.close)
+            self._manage_stops(bar.symbol, bar.close)
             if self.state == "pausing" and not self.portfolio.positions:
                 self._set_state("paused", "all positions closed after PAUSE")
 
+    async def _tick_loop(self) -> None:
+        """Real-time prices: mark-to-market, broker-side SL/TP emulation in
+        paper mode and adaptive exits between candle closes."""
+        q = self._q_ticks
+        while True:
+            ev = await q.get()
+            tick = ev.data
+            try:
+                if hasattr(self.broker, "on_tick"):
+                    self.broker.on_tick(tick.symbol, tick.price, tick.ts)
+                self.portfolio.mark_price(tick.symbol, tick.price)
+                self._manage_stops(tick.symbol, tick.price)
+            except Exception as exc:  # never let one bad tick kill the loop
+                log.warning("tick handling failed: %s", exc)
+
     def _manage_stops(self, symbol: str, price: float) -> None:
-        """Break-even protection and trailing stop (§14). Stops only tighten."""
+        """Apply adaptive exit rules (see exits.py). Stops only tighten."""
         for pos in list(self.portfolio.positions.values()):
-            if pos.symbol != symbol or pos.risk_per_unit <= 0:
+            if pos.symbol != symbol or pos.client_order_id in self._closing:
                 continue
-            r = pos.profit_r(price)
-            sign = 1.0 if pos.direction == "LONG" else -1.0
-            target: float | None = None
-            why = ""
-            if not pos.be_done and r >= self.break_even_at_r:
-                target = pos.entry_price + sign * 0.05 * pos.risk_per_unit
-                why = "break-even"
-            if r >= self.trail_start_r:
-                trail = price - sign * self.trail_distance_r * pos.risk_per_unit
-                if target is None or (sign > 0 and trail > target) \
-                        or (sign < 0 and trail < target):
-                    target = trail
-                    why = "trailing"
-            if target is None:
-                continue
-            improves = (sign > 0 and target > pos.stop_loss) or \
-                       (sign < 0 and target < pos.stop_loss)
-            if not improves:
-                continue
-            if self.broker.update_stop(pos.client_order_id, target):
-                pos.stop_loss = target
-                if why == "break-even" and not pos.be_done:
-                    pos.be_done = True
-                    self._db.audit("trade",
-                                   f"{symbol}: SL moved to break-even ({target:.6g})",
-                                   data={"profit_r": round(r, 2)})
+            sentiment = self.sentiment_provider(symbol) if self.sentiment_provider else None
+            regime = self.regime_provider(symbol) if self.regime_provider else None
+            for act in evaluate_exit(pos, price, self.exit_params, sentiment, regime):
+                if act.kind == "close":
+                    self._closing.add(pos.client_order_id)
+                    self._db.audit("trade", f"{symbol}: adaptívny výstup - {act.reason}",
+                                   data={"price": price, "profit_r": round(pos.profit_r(price), 2)})
+                    self.broker.close_position(pos.client_order_id, f"adaptive: {act.reason}")
+                    break
+                if act.kind == "stop" and self.broker.update_stop(pos.client_order_id, act.price):
+                    pos.stop_loss = act.price
+                    if "riziko" in act.reason:
+                        pos.risk_reduced = True
+                    if "break-even" in act.reason and not pos.be_done:
+                        pos.be_done = True
+                        pos.risk_reduced = True
+                    self._db.audit("trade", f"{symbol}: SL -> {act.price:.6g} ({act.reason})",
+                                   data={"profit_r": round(pos.profit_r(price), 2)})
+                if act.kind == "tp" and self.broker.update_take_profit(
+                        pos.client_order_id, act.price):
+                    pos.take_profit = act.price
+                    pos.tp_extensions += 1
+                    self._db.audit("trade", f"{symbol}: TP -> {act.price:.6g} ({act.reason})")
 
     async def _session_loop(self) -> None:
         notified_day: int | None = None
@@ -201,12 +223,15 @@ class ExecutionService:
                                "factors": best.get("factors"),
                                "signal": best.get("signal"),
                                "features_m5": decision.get("features_m5")})
+            if self.sentiment_provider is not None:
+                pos.entry_sentiment = self.sentiment_provider(fill.symbol)
             self._db.audit("trade", f"OPEN {fill.symbol} {fill.direction} "
                            f"qty {fill.quantity:.6g} @ {fill.price:.6g}", data={
                                "strategy": pos.strategy, "sl": pos.stop_loss,
                                "tp": pos.take_profit, "risk_pct": pos.risk_pct})
             self._bus.publish(TRADE_EVENT, {"kind": "opened", **self._pos_dict(pos)})
         else:
+            self._closing.discard(fill.client_order_id)
             pl = self.portfolio.record_exit(fill.client_order_id, fill.price,
                                             fill.fee, reason=fill.kind)
             if pl is None:
@@ -222,13 +247,16 @@ class ExecutionService:
 
     @staticmethod
     def _pos_dict(pos) -> dict:
-        return {"symbol": pos.symbol, "direction": pos.direction,
+        return {"client_order_id": pos.client_order_id,
+                "symbol": pos.symbol, "direction": pos.direction,
                 "quantity": pos.quantity, "entry": pos.entry_price,
+                "invested": round(pos.invested, 2),
                 "stop_loss": pos.stop_loss, "take_profit": pos.take_profit,
                 "strategy": pos.strategy}
 
     # --- controls ------------------------------------------------------------
-    def command(self, action: str, command_id: str | None = None) -> dict:
+    def command(self, action: str, command_id: str | None = None,
+                target: str | None = None) -> dict:
         if command_id:
             if command_id in self._processed_commands:
                 return {"ok": True, "state": self.state, "duplicate": True}
@@ -242,6 +270,19 @@ class ExecutionService:
             if self.state in ("paused", "pausing", "stopped"):
                 self.risk.resume()
                 self._set_state("running", "START requested")
+        elif action == "close_position":
+            pos = self.portfolio.positions.get(target or "")
+            if pos is None:
+                return {"ok": False, "error": "pozícia neexistuje alebo už je zatvorená",
+                        "state": self.state}
+            if pos.client_order_id in self._closing:
+                return {"ok": True, "state": self.state, "pending": True}
+            self._closing.add(pos.client_order_id)
+            if not self.broker.close_position(pos.client_order_id, "manual_close"):
+                self._closing.discard(pos.client_order_id)
+                return {"ok": False, "error": "broker zatvorenie odmietol", "state": self.state}
+            self._db.audit("trade", f"{pos.symbol}: ručné zatvorenie pozície")
+            return {"ok": True, "state": self.state, "closing": pos.client_order_id}
         elif action == "emergency_stop":
             self.risk.halt("emergency stop")
             closed, failed = 0, 0

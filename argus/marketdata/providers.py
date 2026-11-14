@@ -174,3 +174,92 @@ class AlpacaProvider(PollingProvider):
             ))
         out.sort(key=lambda c: c.ts)
         return out
+
+
+class KrakenTicker:
+    """Real-time last price + bid/ask for all symbols in ONE request every
+    ``interval`` seconds (Kraken public Ticker endpoint, no key). Drives the
+    live forming candle, mark-to-market and spread checks.
+
+    Kraken returns results under its internal pair keys (e.g. XXBTZUSD), so
+    the key -> symbol map is resolved once via AssetPairs.
+    """
+
+    name = "kraken_ticker"
+    BASE = "https://api.kraken.com/0/public"
+
+    def __init__(self, symbols: list[str], emit, health: HealthMonitor,
+                 interval: float = 2.0) -> None:
+        self.symbols = symbols
+        self._emit = emit
+        self._health = health
+        self._interval = interval
+        self._client = httpx.AsyncClient(timeout=10.0)
+        self._key_to_symbol: dict[str, str] = {}
+        self._task: asyncio.Task | None = None
+        health.register(self.name, stale_after=max(60.0, interval * 15))
+
+    @staticmethod
+    def _altname(symbol: str) -> str:
+        base, quote = symbol.split("/")
+        return f"{KrakenProvider._PAIR_MAP.get(base, base)}{quote}"
+
+    async def _resolve(self) -> None:
+        alts = {self._altname(s): s for s in self.symbols}
+        r = await self._client.get(f"{self.BASE}/AssetPairs",
+                                   params={"pair": ",".join(alts)})
+        r.raise_for_status()
+        payload = r.json()
+        if payload.get("error"):
+            raise RuntimeError(f"kraken AssetPairs: {payload['error']}")
+        for key, info in payload["result"].items():
+            sym = alts.get(info.get("altname", ""))
+            if sym:
+                self._key_to_symbol[key] = sym
+
+    async def poll_once(self) -> list:
+        from .model import Tick
+        if not self._key_to_symbol:
+            await self._resolve()
+        r = await self._client.get(f"{self.BASE}/Ticker",
+                                   params={"pair": ",".join(self._altname(s) for s in self.symbols)})
+        r.raise_for_status()
+        payload = r.json()
+        if payload.get("error"):
+            raise RuntimeError(f"kraken Ticker: {payload['error']}")
+        now = time.time()
+        ticks = []
+        for key, v in payload["result"].items():
+            sym = self._key_to_symbol.get(key)
+            if sym is None:
+                continue
+            ticks.append(Tick(symbol=sym, price=float(v["c"][0]), volume=float(v["c"][1]),
+                              ts=now, source="kraken", bid=float(v["b"][0]),
+                              ask=float(v["a"][0])))
+        return ticks
+
+    async def run(self) -> None:
+        errors = 0
+        while True:
+            try:
+                for tick in await self.poll_once():
+                    self._emit(tick)
+                errors = 0
+                self._health.heartbeat(self.name, Status.OK,
+                                       f"{len(self.symbols)} symbolov, každé {self._interval:g}s")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                errors += 1
+                self._health.set_status(self.name, Status.DEGRADED, f"{type(exc).__name__}: {exc}")
+                await asyncio.sleep(min(30.0, 2.0 ** errors))
+                continue
+            await asyncio.sleep(self._interval)
+
+    def start(self) -> None:
+        self._task = asyncio.get_running_loop().create_task(self.run(), name="kraken-ticker")
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+        await self._client.aclose()

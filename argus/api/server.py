@@ -13,7 +13,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from .. import __version__
@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 def create_app(db: Database, bus: EventBus, health: HealthMonitor,
                engine_info: dict, news=None, calendar=None,
                executor=None, portfolio=None, decision_engine=None,
-               settings=None) -> FastAPI:
+               settings=None, engine=None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -64,8 +64,12 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
                     "allowed": [t.value for t in Timeframe]}
         limit = max(1, min(limit, 2000))
         candles = db.get_candles(symbol, tf, limit=limit)
+        forming = engine.forming_bar(symbol, tf) if engine is not None else None
+        if forming is not None and candles and forming.ts <= candles[-1].ts:
+            forming = None
         return {"symbol": symbol, "timeframe": tf.value,
-                "candles": [c.as_dict() for c in candles]}
+                "candles": [c.as_dict() for c in candles],
+                "forming": forming.as_dict() if forming is not None else None}
 
     @app.get("/api/portfolio")
     def api_portfolio() -> dict:
@@ -88,7 +92,130 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
             return {"ok": False, "error": "executor unavailable"}
         action = str(payload.get("action", ""))
         command_id = payload.get("command_id")
-        return executor.command(action, str(command_id) if command_id else None)
+        target = payload.get("target")
+        return executor.command(action, str(command_id) if command_id else None,
+                                target=str(target) if target else None)
+
+    @app.post("/api/positions/{coid}/close")
+    def api_close_position(coid: str) -> dict:
+        if executor is None:
+            return {"ok": False, "error": "executor unavailable"}
+        return executor.command("close_position", target=coid)
+
+    # --- ML controls & knowledge export/import ---------------------------
+    @app.get("/api/ml/status")
+    def api_ml_status() -> dict:
+        if engine is None:
+            return {"available": False}
+        sch = engine.ml_scheduler
+        scorer = engine.decision_engine.ml_scorer
+        return {"available": True, "running": sch.running,
+                "last_run_at": sch.last_run_at,
+                "last_result": sch.last_result,
+                "active_model": (f"{scorer.meta.name} v{scorer.meta.version}"
+                                 if scorer is not None else None),
+                "auto_activate": engine.runtime["ml_auto_activate"]}
+
+    @app.post("/api/ml/train")
+    def api_ml_train() -> dict:
+        if engine is None:
+            return {"ok": False, "error": "engine unavailable"}
+        started = engine.ml_scheduler.train_now()
+        return {"ok": started, "error": None if started else "tréning už beží"}
+
+    @app.post("/api/ml/activate")
+    def api_ml_activate(payload: dict) -> JSONResponse:
+        try:
+            engine.registry.activate("setup-scorer", int(payload.get("version")))
+        except (ValueError, TypeError) as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, 400)
+        engine.reload_model()
+        return JSONResponse({"ok": True})
+
+    @app.post("/api/ml/rollback")
+    def api_ml_rollback() -> dict:
+        v = engine.registry.rollback("setup-scorer")
+        engine.reload_model()
+        return {"ok": v is not None, "version": v}
+
+    @app.get("/api/knowledge/export")
+    def api_knowledge_export():
+        from fastapi.responses import Response
+        from ..ml.knowledge import export_bundle
+        data = export_bundle(db, engine.settings.data_dir / "models", engine.runtime)
+        stamp = __import__("datetime").datetime.now().strftime("%Y%m%d-%H%M")
+        return Response(data, media_type="application/zip", headers={
+            "Content-Disposition": f'attachment; filename="argus-knowledge-{stamp}.zip"'})
+
+    @app.post("/api/knowledge/import")
+    async def api_knowledge_import(request: Request, apply_settings: int = 0) -> JSONResponse:
+        from ..ml.knowledge import import_bundle
+        data = await request.body()
+        if len(data) > 500 * 1024 * 1024:
+            return JSONResponse({"ok": False, "error": "súbor je príliš veľký"}, 413)
+        try:
+            report = import_bundle(db, engine.settings.data_dir / "models", engine.registry,
+                                   data, runtime=engine.runtime,
+                                   apply_settings=bool(apply_settings))
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, 400)
+        engine.reload_model()
+        engine.ml_scheduler.rebuild_selector()
+        from ..ml.training import load_profiles
+        engine.selector.set_priors(load_profiles(db))
+        return JSONResponse({"ok": True, "report": report})
+
+    # --- LLM provider & local secrets --------------------------------------
+    ALLOWED_SECRETS = {"anthropic_api_key", "openai_api_key", "gemini_api_key"}
+
+    @app.get("/api/llm")
+    def api_llm() -> dict:
+        if engine is None:
+            return {"available": False}
+        st = engine.llm.status()
+        st["available"] = True
+        st["secrets_encrypted"] = engine.secrets.encrypted
+        st["configured_keys"] = sorted(k for k in engine.secrets.configured()
+                                       if k in ALLOWED_SECRETS)
+        return st
+
+    @app.post("/api/secrets")
+    def api_set_secret(payload: dict) -> JSONResponse:
+        name = str(payload.get("name", ""))
+        value = str(payload.get("value", "")).strip()
+        if name not in ALLOWED_SECRETS:
+            return JSONResponse({"ok": False, "error": "neznámy kľúč"}, 400)
+        if not value:
+            engine.secrets.delete(name)
+            db.audit("security", f"API kľúč {name} odstránený")
+            return JSONResponse({"ok": True, "deleted": True})
+        engine.secrets.set(name, value)
+        db.audit("security", f"API kľúč {name} uložený")
+        return JSONResponse({"ok": True})
+
+    @app.get("/api/settings")
+    def api_get_settings() -> dict:
+        if engine is None:
+            return {"available": False}
+        from ..fees import venues_table
+        d = engine.runtime.describe()
+        d["available"] = True
+        d["venues"] = venues_table()
+        d["active_symbols"] = engine.crypto_symbols
+        return d
+
+    @app.post("/api/settings")
+    def api_update_settings(payload: dict) -> JSONResponse:
+        if engine is None:
+            return JSONResponse({"ok": False, "error": "engine unavailable"}, 400)
+        try:
+            changed = engine.runtime.update(payload)
+        except (ValueError, TypeError) as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, 400)
+        from ..runtime_settings import RESTART_REQUIRED
+        return JSONResponse({"ok": True, "changed": changed,
+                             "restart_required": sorted(set(changed) & RESTART_REQUIRED),
+                             "values": engine.runtime.as_dict()})
 
     @app.get("/api/strategies")
     def api_strategies() -> dict:
@@ -108,8 +235,13 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
                 "expectancy_r": st.get("expectancy_r"),
                 "by_regime": st.get("by_regime", {}),
             })
-        return {"strategies": out,
-                "note": "Štatistiky z vlastných uzatvorených obchodov; PF<1 pri n>=30 stratégiu automaticky vypne."}
+        symbols = engine.crypto_symbols if engine is not None else []
+        matrix = sel.symbol_matrix(symbols, [s.name for s in decision_engine.strategies]) \
+            if sel is not None else {}
+        return {"strategies": out, "per_symbol": matrix, "symbols": symbols,
+                "note": ("Každá minca má vlastný výber stratégií: kým nie je dosť vlastných "
+                         "obchodov (15), rozhoduje kalibračný backtest po poplatkoch; "
+                         "stratégia so ziskovým faktorom pod 1 sa pre danú mincu vypne.")}
 
     @app.get("/api/risk")
     def api_risk() -> dict:

@@ -85,6 +85,10 @@ class BrokerAdapter(ABC):
         """Move the protective stop (trailing / break-even). Optional."""
         return False
 
+    def update_take_profit(self, client_order_id: str, new_tp: float) -> bool:
+        """Move the take-profit (adaptive extension). Optional."""
+        return False
+
 
 class PaperBroker(BrokerAdapter):
     """Simulated execution against live market data.
@@ -124,6 +128,22 @@ class PaperBroker(BrokerAdapter):
             elif hit_tp:
                 self._fill_exit(pos, pos.take_profit, "take_profit", bar.ts)
 
+    def on_tick(self, symbol: str, price: float, ts: float | None = None) -> None:
+        """Real-time price: fill SL/TP the moment the price crosses them
+        (exactly what resting orders at the broker would do)."""
+        self._last_price[symbol] = price
+        for pos in list(self._positions.values()):
+            if pos.symbol != symbol:
+                continue
+            if pos.direction == "LONG":
+                hit_sl, hit_tp = price <= pos.stop_loss, price >= pos.take_profit
+            else:
+                hit_sl, hit_tp = price >= pos.stop_loss, price <= pos.take_profit
+            if hit_sl:
+                self._fill_exit(pos, pos.stop_loss, "stop_loss", ts or self._clock())
+            elif hit_tp:
+                self._fill_exit(pos, pos.take_profit, "take_profit", ts or self._clock())
+
     def last_price(self, symbol: str) -> float | None:
         return self._last_price.get(symbol)
 
@@ -159,6 +179,13 @@ class PaperBroker(BrokerAdapter):
 
     def positions(self) -> list[BrokerPosition]:
         return list(self._positions.values())
+
+    def update_take_profit(self, client_order_id: str, new_tp: float) -> bool:
+        pos = self._positions.get(client_order_id)
+        if pos is None:
+            return False
+        pos.take_profit = new_tp
+        return True
 
     def update_stop(self, client_order_id: str, new_stop: float) -> bool:
         pos = self._positions.get(client_order_id)

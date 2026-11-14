@@ -92,7 +92,7 @@ async def test_full_engine_boot_api_and_pipeline(settings):
             assert r.json()["open_positions"] == []
 
             # audit trail recorded the lifecycle
-            r = await client.get("/api/audit?limit=50")
+            r = await client.get("/api/audit?limit=500")
             msgs = [e["message"] for e in r.json()["entries"]]
             assert any("Engine running" in m for m in msgs)
             assert any("Bot state -> stopped" in m for m in msgs)

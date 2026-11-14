@@ -97,8 +97,9 @@ class DecisionEngine:
                     align += w
         f["mtf_alignment"] = align
 
-        # risk/reward (0-15): 1.2 -> 4, 2.0 -> 10, >=3 -> 15
-        rr = sig.rr
+        # risk/reward NET of fees+slippage (0-15): 1.2 -> 4, 2.0 -> 10, >=3 -> 15
+        from .risk import net_reward_risk
+        _, _, rr = net_reward_risk(sig, self.risk.limits.round_trip_cost_pct)
         f["risk_reward"] = max(0.0, min(15.0, (rr - 0.6) * 6.25))
 
         # volume support (0-10)
@@ -148,7 +149,7 @@ class DecisionEngine:
         res = DecisionResult(symbol=ctx.symbol, regime=ctx.regime, verdict="no_signal")
 
         for strat in self.strategies:
-            if self.selector is not None and not self.selector.is_enabled(strat.name):
+            if self.selector is not None and not self.selector.is_enabled(strat.name, ctx.symbol):
                 continue
             try:
                 sig = strat.evaluate(ctx)

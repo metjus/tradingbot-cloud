@@ -45,7 +45,7 @@ def test_daily_loss_limit_blocks_new_trades():
     sup = RiskSupervisor()
     v = sup.check(sig(), account(equity=9_790.0))  # -2.1% today
     assert not v.approved
-    assert any("daily loss limit" in x for x in v.vetoes)
+    assert any("denný limit straty" in x for x in v.vetoes)
 
 
 def test_max_positions_and_daily_trades():
@@ -58,7 +58,7 @@ def test_invalid_sl_vetoed():
     bad = sig(entry=100, sl=101, tp=102)  # SL above entry on LONG
     v = RiskSupervisor().check(bad, account())
     assert not v.approved
-    assert any("invalid signal" in x for x in v.vetoes)
+    assert any("neplatný signál" in x for x in v.vetoes)
 
 
 def test_low_rr_vetoed():
@@ -86,7 +86,7 @@ def test_open_risk_budget():
     sup = RiskSupervisor(RiskLimits(risk_per_trade_pct=0.5, daily_max_loss_pct=2.0))
     v = sup.check(sig(), account(open_risk_pct=1.8))
     assert not v.approved
-    assert any("daily budget" in x for x in v.vetoes)
+    assert any("prekročilo denný limit" in x for x in v.vetoes)
 
 
 def test_notional_cap_shrinks_quantity():

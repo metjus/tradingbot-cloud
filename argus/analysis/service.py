@@ -32,7 +32,7 @@ class AnalysisService:
     def __init__(self, db: Database, bus: EventBus, health: HealthMonitor,
                  engine: DecisionEngine, paper_equity: float,
                  sentiment_tracker=None, calendar=None,
-                 account_provider=None) -> None:
+                 account_provider=None, spread_provider=None) -> None:
         self._db = db
         self._bus = bus
         self._health = health
@@ -41,6 +41,9 @@ class AnalysisService:
         self._sentiment = sentiment_tracker    # SentimentTracker | None
         self._calendar = calendar              # EventCalendar | None
         self._account_provider = account_provider  # () -> AccountState | None
+        self._spread_provider = spread_provider    # symbol -> spread % | None
+        #: latest detected regime per symbol (used by adaptive exits)
+        self.last_regime: dict = {}
         self._blackout_logged: dict[str, str] = {}
         #: last M5 FeatureSet dict per symbol (for learning context storage)
         self.last_features_m5: dict[str, dict] = {}
@@ -110,10 +113,13 @@ class AnalysisService:
         if Timeframe.M5 in features:
             self.last_features_m5[symbol] = features[Timeframe.M5].as_dict()
         sentiment = self._sentiment.score_for(symbol) if self._sentiment else None
+        spread = self._spread_provider(symbol) if self._spread_provider else None
         ctx = MarketContext(symbol=symbol, now_ts=now_ts, candles=candles,
                             features=features, regime=Regime.UNCERTAIN,
-                            sentiment=sentiment)
-        return self._engine.evaluate(ctx, account)
+                            sentiment=sentiment, spread_pct=spread)
+        result = self._engine.evaluate(ctx, account)
+        self.last_regime[symbol] = result.regime
+        return result
 
     def _persist(self, res: DecisionResult) -> None:
         if res.verdict == "no_signal":

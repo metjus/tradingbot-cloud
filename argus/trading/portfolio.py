@@ -37,6 +37,15 @@ class OpenPosition:
     last_price: float | None = None
     initial_stop: float = 0.0        # SL at entry; current SL may trail
     be_done: bool = False            # break-even protection applied
+    risk_reduced: bool = False       # first risk-reduction step applied
+    max_favorable_r: float = 0.0     # best unrealised profit seen, in R
+    entry_sentiment: float | None = None
+    tp_extensions: int = 0
+
+    @property
+    def invested(self) -> float:
+        """Money put into the position (entry value)."""
+        return self.entry_price * self.quantity
 
     @property
     def risk_per_unit(self) -> float:
@@ -170,7 +179,11 @@ class Portfolio:
         open_risk = sum(p.risk_pct for p in self.positions.values())
         return AccountState(equity=self.equity, day_start_equity=self.day_start_equity,
                             open_positions=len(self.positions),
-                            trades_today=self.trades_today, open_risk_pct=open_risk)
+                            trades_today=self.trades_today, open_risk_pct=open_risk,
+                            open_notional=self.invested_total())
+
+    def invested_total(self) -> float:
+        return sum(p.invested for p in self.positions.values())
 
     def snapshot(self) -> dict:
         self._roll_day()
@@ -182,8 +195,11 @@ class Portfolio:
             if self.day_start_equity else 0.0,
             "total_pl": round(self.equity - self.start_equity, 2),
             "trades_today": self.trades_today,
+            "invested_total": round(self.invested_total(), 2),
             "open_positions": [
-                {"symbol": p.symbol, "direction": p.direction,
+                {"client_order_id": p.client_order_id,
+                 "symbol": p.symbol, "direction": p.direction,
+                 "invested": round(p.invested, 2),
                  "quantity": p.quantity, "entry": p.entry_price,
                  "stop_loss": p.stop_loss, "take_profit": p.take_profit,
                  "strategy": p.strategy,

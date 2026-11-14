@@ -1,8 +1,9 @@
-"""Engine orchestration: wires providers -> aggregator -> DB/event bus,
-runs the health monitor and the local API server.
+"""Engine orchestration: market data (candles + real-time ticks) ->
+aggregation -> analysis/decisions -> execution, plus monitoring, news,
+ML scheduling, cloud sync and the local API for the desktop terminal.
 
-Phase 3 scope: market data pipeline + storage + monitoring + local API.
-No trading logic lives here yet (phases 4+ plug into the same event bus).
+User-editable settings (RuntimeSettings) are applied live to the risk
+supervisor, decision engine, exit manager and paper broker.
 """
 
 from __future__ import annotations
@@ -17,14 +18,17 @@ from . import __version__
 from .analysis.service import AnalysisService
 from .api.server import create_app
 from .config import Settings
-from .core.events import CANDLE, CANDLE_PARTIAL, EventBus
+from .core.events import CANDLE, CANDLE_PARTIAL, TICK, EventBus
 from .db.database import Database
 from .decision import DecisionEngine
 from .marketdata.aggregator import CandleAggregator
-from .marketdata.model import Candle, Timeframe
-from .marketdata.providers import AlpacaProvider, KrakenProvider, PollingProvider
+from .marketdata.model import Candle, Tick, Timeframe
+from .marketdata.providers import (AlpacaProvider, KrakenProvider, KrakenTicker,
+                                   PollingProvider)
 from .monitoring.health import HealthMonitor, Status
+from .fees import round_trip_cost_pct, venue
 from .risk import RiskLimits, RiskSupervisor
+from .runtime_settings import RuntimeSettings
 
 log = logging.getLogger(__name__)
 
@@ -43,14 +47,17 @@ class Engine:
             on_partial=lambda c: self.bus.publish(CANDLE_PARTIAL, c),
         )
         self._server: uvicorn.Server | None = None
+        self.runtime = RuntimeSettings(self.db)
+        # explicit config/env wins (tests, power users); otherwise the
+        # symbol list edited in the UI is used
+        self.crypto_symbols: list[str] = (
+            list(settings.crypto_symbols) if "crypto_symbols" in settings.model_fields_set
+            else list(self.runtime["symbols"]))
+        self.ticker: KrakenTicker | None = None
+        self.last_tick: dict[str, Tick] = {}
+        self.forming_m1: dict[str, Candle] = {}
 
-        limits = RiskLimits(
-            risk_per_trade_pct=settings.risk_per_trade_pct,
-            daily_max_loss_pct=settings.daily_max_loss_pct,
-            max_open_positions=settings.max_open_positions,
-            max_daily_trades=settings.max_daily_trades,
-        )
-        self.risk = RiskSupervisor(limits)
+        self.risk = RiskSupervisor(RiskLimits())
         from .ml.registry import ModelRegistry
         self.registry = ModelRegistry(self.db, settings.data_dir / "models")
         ml_scorer = self.registry.load_active("setup-scorer")
@@ -58,23 +65,25 @@ class Engine:
             log.info("loaded active ML model setup-scorer v%s", ml_scorer.meta.version)
         from .analysis.selector import StrategySelector
         self.selector = StrategySelector(audit=self.db.audit)
-        self.decision_engine = DecisionEngine(self.risk, enter_threshold=settings.enter_threshold,
+        self.decision_engine = DecisionEngine(self.risk, enter_threshold=self.runtime["enter_threshold"],
                                               ml_scorer=ml_scorer, selector=self.selector)
 
         from .news.calendar import EventCalendar
-        from .news.llm import LLMNewsAnalyzer
+        from .news.llm import LLMRouter
         from .news.service import NewsService
+        from .secrets import SecretStore
+        self.secrets = SecretStore(settings.data_dir)
+        if settings.anthropic_api_key and not self.secrets.get("anthropic_api_key"):
+            self.secrets.set("anthropic_api_key", settings.anthropic_api_key)  # one-time import
+        self.llm = LLMRouter(self.runtime, self.secrets)
         self.calendar = EventCalendar(self.db, settings.event_blackout_before_min,
                                       settings.event_blackout_after_min)
         self.news: NewsService | None = None
         if settings.news_enabled:
-            llm = (LLMNewsAnalyzer(settings.anthropic_api_key,
-                                   settings.llm_daily_budget_usd)
-                   if settings.anthropic_api_key else None)
-            tracked = settings.crypto_symbols + settings.stock_symbols
+            tracked = self.crypto_symbols + settings.stock_symbols
             self.news = NewsService(self.db, self.bus, self.health, tracked,
                                     poll_seconds=settings.news_poll_seconds,
-                                    llm_analyzer=llm)
+                                    llm_analyzer=self.llm)
 
         # --- execution (phase 8: paper only; live arrives in phase 12/14) ---
         if settings.trading_mode != "paper":
@@ -94,27 +103,31 @@ class Engine:
         self.portfolio = Portfolio(self.db, broker_name=self.broker.name,
                                    mode="paper", start_equity=settings.paper_equity)
         self.executor = ExecutionService(self.db, self.bus, self.health,
-                                         self.broker, self.portfolio, self.risk,
-                                         trailing_enabled=settings.trailing_enabled,
-                                         break_even_at_r=settings.break_even_at_r,
-                                         trail_start_r=settings.trail_start_r,
-                                         trail_distance_r=settings.trail_distance_r)
+                                         self.broker, self.portfolio, self.risk)
 
         from .ml.scheduler import TrainingScheduler
-        tracked = settings.crypto_symbols + settings.stock_symbols
+        tracked = self.crypto_symbols + settings.stock_symbols
         self.ml_scheduler = TrainingScheduler(
             self.db, self.bus, self.health, self.registry, self.selector,
             symbols=tracked or ["BTC/USD"],
             train_hour_utc=settings.ml_train_hour_utc,
             history_days=settings.ml_history_days,
-            enabled=settings.ml_train_enabled)
+            enabled=settings.ml_train_enabled, runtime=self.runtime)
+        self.ml_scheduler.on_model_change = self.reload_model
 
         self.analysis = AnalysisService(
             self.db, self.bus, self.health, self.decision_engine,
             settings.paper_equity,
             sentiment_tracker=self.news.tracker if self.news else None,
             calendar=self.calendar,
-            account_provider=self.portfolio.account_state)
+            account_provider=self.portfolio.account_state,
+            spread_provider=self._spread_for)
+        self.executor.sentiment_provider = (
+            self.news.tracker.score_for if self.news is not None else None)
+        self.executor.regime_provider = self.analysis.last_regime.get
+
+        self.apply_settings()
+        self.runtime.on_change(lambda _changed: self.apply_settings())
 
         from .cloud.sync import CloudSync
         self.cloud: CloudSync | None = None
@@ -124,6 +137,85 @@ class Engine:
                                    settings.cloud_url, settings.cloud_token,
                                    settings.cloud_push_seconds,
                                    settings.cloud_poll_seconds)
+
+    def reload_model(self) -> None:
+        """Hot-swap the active ML model into the decision engine."""
+        scorer = self.registry.load_active("setup-scorer")
+        self.decision_engine.ml_scorer = scorer
+        log.info("ML model reloaded: %s", f"v{scorer.meta.version}" if scorer else "none")
+
+    # --- settings -----------------------------------------------------------
+    def apply_settings(self) -> None:
+        rs = self.runtime
+        cost = round_trip_cost_pct(rs["fee_venue"], "taker", rs["slippage_pct"])
+        L = self.risk.limits
+        L.risk_per_trade_pct = rs["risk_per_trade_pct"]
+        L.daily_max_loss_pct = rs["daily_max_loss_pct"]
+        L.max_open_positions = rs["max_open_positions"]
+        L.max_daily_trades = rs["max_daily_trades"]
+        L.min_rr = rs["min_rr_net"]
+        L.budget_eur = rs["budget_eur"]
+        L.max_position_eur = rs["max_position_eur"]
+        L.round_trip_cost_pct = cost
+        L.allow_short = rs["allow_short"]
+        self.decision_engine.enter_threshold = rs["enter_threshold"]
+        ep = self.executor.exit_params
+        ep.enabled = rs["adaptive_exits"]
+        ep.reduce_risk_at_r = rs["reduce_risk_at_r"]
+        ep.break_even_at_r = rs["break_even_at_r"]
+        ep.trail_start_r = rs["trail_start_r"]
+        ep.trail_distance_r = rs["trail_distance_r"]
+        ep.giveback_pct = rs["giveback_pct"]
+        ep.sentiment_exit = rs["sentiment_exit"]
+        ep.regime_exit = rs["regime_exit"]
+        ep.round_trip_cost_pct = cost
+        if hasattr(self.broker, "fee_pct"):
+            self.broker.fee_pct = venue(rs["fee_venue"]).taker_pct
+            self.broker.slippage_pct = rs["slippage_pct"]
+        log.info("settings applied: venue %s, round-trip cost %.3f%%, budget %.0f",
+                 rs["fee_venue"], cost, rs["budget_eur"])
+
+    # --- real-time ticks & forming candles -----------------------------------
+    def _spread_for(self, symbol: str) -> float | None:
+        tick = self.last_tick.get(symbol)
+        if tick is None or time.time() - tick.ts > 30:
+            return None
+        return tick.spread_pct
+
+    def _on_tick(self, tick: Tick) -> None:
+        self.last_tick[tick.symbol] = tick
+        bucket = Timeframe.M1.align(int(tick.ts))
+        bar = self.forming_m1.get(tick.symbol)
+        if bar is None or bar.ts != bucket:
+            self.forming_m1[tick.symbol] = Candle(
+                symbol=tick.symbol, timeframe=Timeframe.M1, ts=bucket,
+                open=tick.price, high=tick.price, low=tick.price, close=tick.price,
+                volume=0.0, source="ticks", complete=False)
+        else:
+            bar.merge_tick(tick.price, 0.0)
+        self.bus.publish(TICK, tick)
+
+    def forming_bar(self, symbol: str, tf: Timeframe) -> Candle | None:
+        """The current, not yet closed candle of ``tf``: closed 1m bars of
+        this bucket (aggregator) merged with the live 1m bar from ticks."""
+        m1 = self.forming_m1.get(symbol)
+        if m1 is None:
+            return None
+        if tf is Timeframe.M1:
+            return m1.copy()
+        bucket = tf.align(m1.ts)
+        agg = self.aggregator._open.get((symbol, tf))
+        if agg is not None and agg.ts == bucket:
+            bar = agg.copy()
+            bar.high = max(bar.high, m1.high)
+            bar.low = min(bar.low, m1.low)
+            bar.close = m1.close
+        else:
+            bar = Candle(symbol=symbol, timeframe=tf, ts=bucket, open=m1.open,
+                         high=m1.high, low=m1.low, close=m1.close, volume=0.0,
+                         source="ticks", complete=False)
+        bar.complete = False
+        return bar
 
     # --- candle flow ------------------------------------------------------
     def _on_m1(self, bar: Candle) -> None:
@@ -138,11 +230,13 @@ class Engine:
     # --- lifecycle ----------------------------------------------------------
     def _build_providers(self) -> None:
         s = self.settings
-        if s.crypto_symbols:
+        if self.crypto_symbols:
             if s.crypto_provider == "kraken":
                 self.providers.append(KrakenProvider(
-                    s.crypto_symbols, self._on_m1, self.health,
+                    self.crypto_symbols, self._on_m1, self.health,
                     poll_seconds=s.candle_poll_seconds))
+                self.ticker = KrakenTicker(self.crypto_symbols, self._on_tick, self.health,
+                                           interval=s.tick_seconds)
             else:
                 raise ValueError(f"unsupported crypto provider: {s.crypto_provider}")
         if s.stock_symbols:
@@ -197,6 +291,8 @@ class Engine:
         await self._backfill()
         for p in self.providers:
             p.start()
+        if self.ticker is not None:
+            self.ticker.start()
         self.analysis.start()
         self.executor.start()
         if hasattr(self.broker, "start"):
@@ -213,7 +309,7 @@ class Engine:
                          news=self.news, calendar=self.calendar,
                          executor=self.executor, portfolio=self.portfolio,
                          decision_engine=self.decision_engine,
-                         settings=self.settings)
+                         settings=self.settings, engine=self)
         # log_config=None: uvicorn's default config builds console formatters
         # that call sys.stdout.isatty(), which crashes when there is no console
         # (pythonw / windowed EXE). Its loggers propagate to our root handlers.
@@ -237,8 +333,11 @@ class Engine:
                 await self.cloud.stop()
             if self.news is not None:
                 await self.news.stop()
+            await self.llm.aclose()
             for p in self.providers:
                 await p.stop()
+            if self.ticker is not None:
+                await self.ticker.stop()
             self.health.stop()
             self.db.audit("system", "Engine stopped")
             log.info("engine stopped")

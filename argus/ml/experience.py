@@ -52,9 +52,14 @@ def trade_to_record(t: Trade) -> SignalRecord | None:
                         outcome=outcome, exit_ts=exit_ts, bars_held=0, pl_r=pl_r)
 
 
-def load_experience(db: Database, mode: str | None = None) -> list[SignalRecord]:
+def load_experience(db: Database, mode: str | None = None,
+                    include_manual: bool = False) -> list[SignalRecord]:
+    """Closed trades as learning records. Manual closes are excluded by
+    default: they reflect a human decision, not the strategy's outcome."""
     with db.session() as s:
         q = select(Trade).where(Trade.status == "closed")
+        if not include_manual:
+            q = q.where(Trade.exit_reason != "manual_close")
         if mode:
             q = q.where(Trade.mode == mode)
         rows = s.execute(q.order_by(Trade.id)).scalars().all()

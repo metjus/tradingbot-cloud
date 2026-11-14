@@ -104,7 +104,7 @@ def test_daily_loss_vetoes_even_great_setup():
     res = engine.evaluate(uptrend_ctx(), account)
     if res.evaluated and res.best.score >= 60.0:
         assert res.verdict == "veto"
-        assert any("daily loss" in v for v in res.risk.vetoes)
+        assert any("denný limit" in v for v in res.risk.vetoes)
 
 
 def test_no_signal_without_enough_history():

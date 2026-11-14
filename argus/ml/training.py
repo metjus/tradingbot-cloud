@@ -118,24 +118,32 @@ def walk_forward_validate(ds: Dataset, gates: ValidationGates | None = None
 async def train_from_history(db: Database, registry: ModelRegistry,
                              symbols: list[str], days: int = 60,
                              gates: ValidationGates | None = None,
-                             extra_records: list | None = None) -> dict:
+                             extra_records: list | None = None,
+                             fee_venue: str = "binance", slippage_pct: float = 0.02,
+                             allow_short: bool = False) -> dict:
     """Full pipeline: history -> backtest signals (+ lived trade records) ->
     dataset -> walk-forward -> register candidate (status = validation)."""
-    bt = Backtester()
+    from ..backtest.engine import realistic_backtester
+    bt = realistic_backtester(fee_venue, slippage_pct, allow_short)
     all_records = list(extra_records or [])
     per_symbol = {}
+    profiles: dict = {}
     for sym in symbols:
         bars = await ensure_history(db, sym, days)
         result = bt.run(sym, bars)
         all_records.extend(result.signals)
         per_symbol[sym] = {"bars": result.bars, **signal_outcome_stats(result)}
+        profiles[sym] = calibration_profile(
+            result.signals, bt.engine.risk.limits.round_trip_cost_pct)
         log.info("backtest %s: %d bars, %d signals (%d labelled)",
                  sym, result.bars, len(result.signals), len(result.dataset))
 
     ds = build_dataset(all_records)
     report = walk_forward_validate(ds, gates)
 
-    out = {"per_symbol": per_symbol, "validation": report.as_dict(), "version": None}
+    out = {"per_symbol": per_symbol, "validation": report.as_dict(), "version": None,
+           "profiles": profiles}
+    save_profiles(db, profiles)
     if len(ds) == 0:
         db.audit("ml", "Training skipped: no labelled signals", "warning", out)
         return out
@@ -150,3 +158,56 @@ async def train_from_history(db: Database, registry: ModelRegistry,
     db.audit("ml", f"Training finished: setup-scorer v{version} ({status})",
              "info" if report.passed else "warning", out["validation"])
     return out
+
+
+def calibration_profile(signals, round_trip_cost_pct: float) -> dict:
+    """Per-strategy result of every backtest signal for one coin, in R
+    multiples NET of the round-trip cost (fees + slippage)."""
+    from collections import defaultdict
+    acc: dict = defaultdict(lambda: {"n": 0, "wins": 0, "pos": 0.0, "neg": 0.0, "sum": 0.0})
+    for rec in signals:
+        if rec.outcome not in ("win", "loss", "timeout"):
+            continue
+        risk = rec.signal.risk_per_unit
+        if risk <= 0:
+            continue
+        cost_r = rec.signal.entry * round_trip_cost_pct / 100.0 / risk
+        net = rec.pl_r - cost_r
+        a = acc[rec.signal.strategy]
+        a["n"] += 1
+        a["sum"] += net
+        if net > 0:
+            a["wins"] += 1
+            a["pos"] += net
+        else:
+            a["neg"] += -net
+    out = {}
+    for strat, a in acc.items():
+        out[strat] = {"n": a["n"],
+                      "win_rate": round(a["wins"] / a["n"], 3) if a["n"] else 0.0,
+                      "profit_factor_r": round(a["pos"] / a["neg"], 3) if a["neg"] > 0 else None,
+                      "expectancy_r": round(a["sum"] / a["n"], 3) if a["n"] else 0.0}
+    return out
+
+
+PROFILES_KEY = "symbol_profiles"
+
+
+def save_profiles(db: Database, profiles: dict) -> None:
+    from ..db.schema import AppSetting
+    with db.session() as s:
+        row = s.get(AppSetting, PROFILES_KEY)
+        merged = dict(row.value) if row is not None else {}
+        merged.update(profiles)
+        if row is None:
+            s.add(AppSetting(key=PROFILES_KEY, value=merged))
+        else:
+            row.value = merged
+        s.commit()
+
+
+def load_profiles(db: Database) -> dict:
+    from ..db.schema import AppSetting
+    with db.session() as s:
+        row = s.get(AppSetting, PROFILES_KEY)
+        return dict(row.value) if row is not None else {}
