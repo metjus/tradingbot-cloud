@@ -74,6 +74,7 @@ input[type=text],input[type=url],input[type=password]{width:100%;background:var(
 .banner.bad{background:rgba(246,86,122,.08);border:1px solid rgba(246,86,122,.35)}
 .banner.warn{background:rgba(240,177,63,.08);border:1px solid rgba(240,177,63,.35)}
 svg.spark{width:100%;height:70px;display:block}
+.btn-icon{display:flex;align-items:center;justify-content:center;gap:10px}
 </style>
 </head>
 <body>
@@ -92,7 +93,7 @@ svg.spark{width:100%;height:70px;display:block}
     <p class="small">V počítači otvor ARGUS → <b>Settings → Mobilná aplikácia</b>. Potom naskenuj
       QR kód, ktorý sa tam zobrazuje.</p>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
-      <button class="btn-primary" onclick="startScan()">📷 Naskenovať QR kód</button>
+      <button class="btn-primary btn-icon" onclick="startScan()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M7 12h10"/></svg>Naskenovať QR kód</button>
       <div class="small" style="text-align:center;margin-top:6px">alebo klikni v počítači <b>Zobraziť 6-miestny kód</b> a zadaj ho:</div>
       <input type="text" id="inp-code" placeholder="6-miestny kód" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off"
         style="font-size:24px;letter-spacing:6px;text-align:center" class="mono">
@@ -103,7 +104,7 @@ svg.spark{width:100%;height:70px;display:block}
 
   <!-- pairing done -->
   <section id="view-paired" class="card hidden" style="text-align:center">
-    <div style="font-size:46px;line-height:1;color:var(--profit)">✓</div>
+    <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--profit)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6.5"/></svg>
     <div style="font-size:18px;font-weight:700;margin:10px 0 6px">Spárované s počítačom</div>
     <p class="small">Počítač to potvrdí v karte Mobilná aplikácia. Odteraz tu vidíš stav bota a dostávaš upozornenia.</p>
     <div id="paired-hint" class="banner warn hidden" style="text-align:left;margin:10px 0"></div>
@@ -266,7 +267,7 @@ async function finishPairing(t){
   if (!isApp()){
     hint.innerHTML = isIOS()
       ? "<b>Tip:</b> pridaj si ARGUS na plochu (Zdieľať → <b>Pridať na plochu</b>). Appka na ploche je na iPhone oddelená od Safari, preto ju po otvorení spáruj ešte raz tlačidlom <b>Naskenovať QR kód</b>."
-      : "<b>Tip:</b> nainštaluj si ARGUS (menu ⋮ → <b>Inštalovať aplikáciu</b> / Pridať na plochu). Ostane spárovaná.";
+      : "<b>Tip:</b> nainštaluj si ARGUS (menu prehliadača → <b>Inštalovať aplikáciu</b> / Pridať na plochu). Ostane spárovaná.";
     hint.classList.remove("hidden");
   } else hint.classList.add("hidden");
   show("paired");

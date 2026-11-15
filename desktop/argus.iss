@@ -21,6 +21,11 @@ UninstallDisplayIcon={app}\ARGUS.exe
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 WizardStyle=modern
+; an existing installation is reinstalled in place (same folder, no uninstall needed)
+UsePreviousAppDir=yes
+UsePreviousTasks=yes
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "sk"; MessagesFile: "compiler:Languages\Slovak.isl"
@@ -30,6 +35,11 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Vytvoriť odkaz na ploche"
 Name: "autostart"; Description: "Spustiť ARGUS automaticky po štarte Windows"; Flags: unchecked
 
+[InstallDelete]
+; clean reinstall: remove the old program files first (user data in %APPDATA%\ARGUS is never touched)
+Type: filesandordirs; Name: "{app}\_internal"; Check: CleanReinstall
+Type: files; Name: "{app}\ARGUS.exe"; Check: CleanReinstall
+
 [Files]
 Source: "..\dist\ARGUS\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
@@ -38,5 +48,58 @@ Name: "{group}\ARGUS"; Filename: "{app}\ARGUS.exe"
 Name: "{autodesktop}\ARGUS"; Filename: "{app}\ARGUS.exe"; Tasks: desktopicon
 Name: "{userstartup}\ARGUS"; Filename: "{app}\ARGUS.exe"; Tasks: autostart
 
+[UninstallRun]
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /T /IM ARGUS.exe"; Flags: runhidden; RunOnceId: "StopArgus"
+
 [Run]
 Filename: "{app}\ARGUS.exe"; Description: "Spustiť ARGUS"; Flags: nowait postinstall skipifsilent
+
+[Code]
+const
+  UninstKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{7E2C9D4A-ARGU-S001-TRAD-ING212000000_is1';
+
+var
+  ModePage: TInputOptionWizardPage;
+  PrevVersion: String;
+
+function FindPrevious(): Boolean;
+begin
+  PrevVersion := '';
+  if not RegQueryStringValue(HKCU, UninstKey, 'DisplayVersion', PrevVersion) then
+    RegQueryStringValue(HKLM, UninstKey, 'DisplayVersion', PrevVersion);
+  if (PrevVersion = '') and (RegKeyExists(HKCU, UninstKey) or RegKeyExists(HKLM, UninstKey)) then
+    PrevVersion := '?';
+  Result := PrevVersion <> '';
+end;
+
+procedure InitializeWizard();
+begin
+  if FindPrevious() then
+  begin
+    ModePage := CreateInputOptionPage(wpWelcome,
+      'ARGUS je už nainštalovaný',
+      'Nainštalovaná verzia: ' + PrevVersion + '   Nová verzia: {#AppVersion}',
+      'Vyber, ako nainštalovať. Obchody, nastavenia, naučené modely a spárovanie ' +
+      'mobilu (priečinok %APPDATA%\ARGUS) ostanú v oboch prípadoch zachované.',
+      True, False);
+    ModePage.Add('Preinštalovať načisto (odporúčané) - odstráni staré súbory programu a nainštaluje nové');
+    ModePage.Add('Iba aktualizovať - prepíše súbory programu');
+    ModePage.SelectedValueIndex := 0;
+  end;
+end;
+
+function CleanReinstall(): Boolean;
+begin
+  Result := (ModePage <> nil) and (ModePage.SelectedValueIndex = 0);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+begin
+  { ARGUS (window + background engine) must not hold files open during install }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /T /IM ARGUS.exe', '', SW_HIDE,
+       ewWaitUntilTerminated, Code);
+  Sleep(800);
+  Result := '';
+end;

@@ -71,6 +71,9 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
 .cell-on{color:var(--profit)}.cell-off{color:var(--loss)}
 .note{background:rgba(240,177,63,.07);border:1px solid rgba(240,177,63,.3);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--soft);line-height:1.5}
 .toast{position:fixed;right:18px;bottom:18px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:12.5px;max-width:420px;box-shadow:0 8px 24px rgba(0,0,0,.4);display:none;z-index:10}
+.ico{display:inline-block;vertical-align:-2px}
+.sdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;margin-right:7px;vertical-align:1px}
+.sdot.profit{color:var(--profit,#35D49B)}.sdot.warn{color:var(--warn,#F0B13F)}.sdot.loss{color:var(--loss,#F6567A)}
 </style>
 </head>
 <body>
@@ -117,8 +120,8 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
               <b id="chart-sym">—</b>
               <span class="mono" id="chart-price"></span>
               <span class="spacer"></span>
-              <select id="sel-symbol" onchange="loadChart()"></select>
-              <select id="sel-tf" onchange="loadChart()">
+              <select id="sel-symbol" onchange="loadChart(true)"></select>
+              <select id="sel-tf" onchange="loadChart(true)">
                 <option>1m</option><option selected>5m</option><option>15m</option>
                 <option>1h</option><option>4h</option>
               </select>
@@ -225,7 +228,7 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
         <div class="label" style="margin-bottom:6px">Stratégie pre jednotlivé mince</div>
         <p class="small" id="strat-note"></p>
         <div style="overflow-x:auto"><table class="matrix" id="tbl-matrix"></table></div>
-        <p class="small">Bunka: <span class="cell-on">●</span> aktívna / <span class="cell-off">●</span> vypnutá,
+        <p class="small">Bunka: <span class="sdot cell-on"></span> aktívna / <span class="sdot cell-off"></span> vypnutá,
           profit faktor po poplatkoch a počet obchodov; zdroj: <b>K</b> = kalibračný backtest,
           <b>V</b> = vlastné obchody.</p>
       </div>
@@ -426,9 +429,17 @@ function clearSub(){
   subSeries = [];
 }
 
-async function loadChart(){
+// fit=true only when the symbol/timeframe changes; a new candle or an
+// indicator toggle keeps the user's zoom and scroll position
+async function loadChart(fit = false){
   const sym = $("sel-symbol").value, tf = $("sel-tf").value;
   if (!sym || !candleSeries) return;
+  const viewKey = sym + "|" + tf;
+  if (loadChart.viewKey !== viewKey) fit = true;
+  const ts = chart.timeScale();
+  const keepLogical = fit ? null : ts.getVisibleLogicalRange();
+  const keepTime = fit ? null : ts.getVisibleRange();
+  const inHistory = !fit && ts.scrollPosition() < -3;   // user scrolled back in time
   try {
     const [d, ind] = await Promise.all([
       api(`/api/candles/${sym}/${tf}?limit=400`),
@@ -478,7 +489,12 @@ async function loadChart(){
         subSeries.push(h, l1, l2);
       }
     }
-    chart.timeScale().fitContent();
+    if (fit || !keepLogical) ts.fitContent();
+    else if (inHistory && keepTime) ts.setVisibleRange(keepTime);
+    else ts.setVisibleLogicalRange(keepLogical);  // same zoom, follows the newest bar
+    const lr = ts.getVisibleLogicalRange();
+    if (lr && subChart) subChart.timeScale().setVisibleLogicalRange(lr);
+    loadChart.viewKey = viewKey;
 
     // numeric indicator strip (last values)
     const lastOf = (a) => { if (!a) return null; for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return a[i]; return null; };
@@ -521,6 +537,13 @@ function onTick(tk){
 }
 
 // --- helpers ---
+const ICONS = {
+  check: '<path d="M4 12.5l5 5L20 6.5"/>',
+  wait: '<circle cx="12" cy="12" r="8" stroke-dasharray="3 3.3"/>',
+};
+const ico = (name, size = 14) =>
+  `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+const sdot = (cls) => `<span class="sdot ${cls}"></span>`;
 function toast(msg, ms=4000){
   const el = $("toast"); el.innerHTML = msg; el.style.display = "block";
   clearTimeout(toast._t); toast._t = setTimeout(() => el.style.display = "none", ms);
@@ -572,7 +595,7 @@ async function refresh(){
     if (!symbolsInit && status.symbols && status.symbols.length){
       symbolsInit = true;
       $("sel-symbol").innerHTML = status.symbols.map(s => `<option>${esc(s)}</option>`).join("");
-      loadChart();
+      loadChart(true);
     }
 
     $("stats").innerHTML = [
@@ -702,7 +725,7 @@ async function refreshSlow(){
           const pf = src ? (src.profit_factor_r ?? null) : null;
           const n = src ? src.n : 0;
           const tag = c.source === "vlastné obchody" ? "V" : (c.source === "kalibrácia" ? "K" : "–");
-          return `<td><span class="${c.enabled ? "cell-on" : "cell-off"}">●</span>
+          return `<td><span class="sdot ${c.enabled ? "cell-on" : "cell-off"}"></span>
             <span class="mono small">${pf != null ? pf.toFixed(2) : "—"} · ${n} · ${tag}</span></td>`;
         }).join("")}</tr>`).join("");
       $("tbl-strategies").innerHTML = "<tr><th>Stratégia</th><th>Stav</th><th>Vhodné režimy</th><th>Obchody</th><th>Win rate</th><th>PF (R)</th><th>Expectancy (R)</th></tr>" +
@@ -914,7 +937,7 @@ async function renderCloud(){
           <span id="pin" class="mono" style="font-size:22px;letter-spacing:4px"></span>
           <span id="pin-exp" class="small"></span>
         </div>
-        <div class="small">Keď sa telefón pripojí, zobrazí sa tu hore so zelenou fajkou.</div>
+        <div class="small">Keď sa telefón pripojí, zobrazí sa tu hore ako pripojený.</div>
       </div></div>
     </details>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
@@ -950,30 +973,30 @@ function cloudLive(c){
   const sync = c.sync || {};
   const linkOk = sinceSync != null && sinceSync < 90;
   const link = linkOk
-    ? `<span class="profit">● Počítač ↔ server: pripojené</span> <span class="small">(${agoText(sinceSync)})</span>`
+    ? `${sdot("profit")}<span class="profit">Spojenie so serverom: pripojené</span> <span class="small">(${agoText(sinceSync)})</span>`
     : (sync.status === "starting" || sinceSync == null
-        ? `<span class="warn">● Počítač ↔ server: pripájam…</span>`
-        : `<span class="loss">● Počítač ↔ server: bez spojenia</span> <span class="small">${esc(sync.detail || "")}</span>`);
+        ? `${sdot("warn")}<span class="warn">Spojenie so serverom: pripájam…</span>`
+        : `${sdot("loss")}<span class="loss">Spojenie so serverom: bez spojenia</span> <span class="small">${esc(sync.detail || "")}</span>`);
   const phones = c.phones || [];
   const age = (p) => (c.server_ts ? c.server_ts - p.last_seen : 0) + (sinceSync || 0);
   const rows = phones.map(p => {
     const a = age(p), active = a < 120;
-    return `<div>${active ? '<span class="profit">✓</span>' : '<span class="small">✓</span>'}
+    return `<div><span class="${active ? "profit" : "small"}">${ico("check")}</span>
       Telefón pripojený: <b>${esc(p.device)}</b>
       <span class="small">· ${active ? "aktívny " : "naposledy "}${agoText(a)}</span></div>`;
   }).join("");
   box.innerHTML = `<div>${link}</div>` + (rows ||
-    `<div class="warn">◌ Čakám na telefón… <span class="small">(žiadny telefón ešte nie je spárovaný)</span></div>`);
+    `<div class="warn">${ico("wait")} Čakám na telefón… <span class="small">(žiadny telefón ešte nie je spárovaný)</span></div>`);
 
   // pairing confirmation: a new phone appeared or the PIN was used
   const known = cloudLive.known || new Set();
   const fresh = phones.filter(p => !known.has(p.device + "|" + p.first_seen));
   const pinUsed = (c.pin_redeemed_ts || 0) > (cloudLive.pinTs || 0);
   if (fresh.length || pinUsed){
-    toast(`<span class="profit">✓ Telefón spárovaný</span>${fresh.length ? " - " + esc(fresh[0].device) : ""}`, 6000);
+    toast(`<span class="profit">${ico("check")} Telefón spárovaný</span>${fresh.length ? " - " + esc(fresh[0].device) : ""}`, 6000);
     if (pinUsed && $("pin")){
       clearInterval(cloudPin._t);
-      $("pin").innerHTML = '<span class="profit" style="font-size:15px;letter-spacing:0">✓ kód použitý</span>';
+      $("pin").innerHTML = '<span class="profit" style="font-size:15px;letter-spacing:0">' + ico("check") + ' kód použitý</span>';
       $("pin-exp").textContent = "";
     }
     const add = $("cloud-add");

@@ -2,11 +2,17 @@
 
 ## 1.1 – aktualizácia párovania mobilu
 
+- Inštalátor rozpozná nainštalovaný ARGUS a ponúkne **Preinštalovať načisto**
+  alebo **Iba aktualizovať** - netreba odinštalovať. Bežiaci ARGUS sám zatvorí.
+  Dáta v `%APPDATA%\ARGUS` ostávajú.
+- Graf: po uzavretí sviečky sa už neresetuje priblíženie ani posun.
+- Ikony namiesto emoji/symbolových znakov v mobilnej appke aj na desktope.
+
 - Mobilná appka má tlačidlo **Naskenovať QR kód** (kamera priamo v appke), takže sa
   spáruje appka z plochy, nie iba prehliadač. Po spárovaní ukáže potvrdenie.
 - Desktop v karte Mobilná aplikácia živo ukazuje stav spojenia so serverom a
   pripojené telefóny (typ, appka/prehliadač, kedy boli naposledy aktívne) a po
-  spárovaní zobrazí **✓ Telefón spárovaný**. Použitý 6-miestny kód sa označí.
+  spárovaní zobrazí **Telefón spárovaný**. Použitý 6-miestny kód sa označí.
 - Oprava: stav synchronizácie ostával „starting“, kým sa stránka neotvorila znova.
 
 ## 1.1 (november 2026)
