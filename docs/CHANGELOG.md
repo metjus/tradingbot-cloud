@@ -2,6 +2,9 @@
 
 ## 1.2.x - objemový exit, výber AI modelu, lacnejšie maker vstupy
 
+- **Take-profit už nestrihá boom**: TP leží na 20R (predtým 6R) a obchod
+  ukončuje trh - trailing, ochrana zisku, objem, sentiment. Strop 6R by na
+  dátach odkrojil tretinu celkového zisku (najlepší obchod +15,6R).
 - **Objemový exit**: keď je pozícia v zisku aspoň 1R a objem na 4h grafe
   ostane 2 sviečky pod polovicou priemeru (hybná sila vyprchala), zisk sa
   uzamkne. Na 2 rokoch dát zdvihol profit factor mimo vzorky z 1,09 na

@@ -16,8 +16,10 @@ second year):
   * Everything on 15m/1h and mean-reversion (RSI2): negative after costs.
 
 Both strategies fire at most once per closed 4h bar and rely on the
-adaptive exit engine (trailing stop) instead of a fixed take-profit: the
-TP is set far away (6R) as a cap.
+adaptive exit engine (trailing stop, give-back, volume-fade) instead of a
+fixed take-profit: the TP sits at 20R, far enough to never cut a boom
+short (the best validated trade reached +15.6R; capping at 6R would have
+cost about a tenth of all profit). The market, not greed, ends the trade.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from ..ta import indicators as ind
 from .base import MarketContext, Signal, Strategy
 
 M5, H1, H4 = Timeframe.M5, Timeframe.H1, Timeframe.H4
-TP_CAP_R = 6.0
+TP_CAP_R = 20.0
 
 
 def _price(ctx: MarketContext) -> float | None:
