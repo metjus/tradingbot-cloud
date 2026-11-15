@@ -279,7 +279,9 @@ class Engine:
     # --- settings -----------------------------------------------------------
     def apply_settings(self) -> None:
         rs = self.runtime
-        cost = round_trip_cost_pct(rs["fee_venue"], "taker", rs["slippage_pct"])
+        cost = round_trip_cost_pct(rs["fee_venue"], 
+                                   "maker" if rs["entry_order"] == "limit" else "taker",
+                                   rs["slippage_pct"])
         L = self.risk.limits
         L.risk_per_trade_pct = rs["risk_per_trade_pct"]
         L.daily_max_loss_pct = rs["daily_max_loss_pct"]
@@ -296,6 +298,7 @@ class Engine:
         L.maintenance_margin_pct = v.maintenance_margin_pct if v.futures else 0.0
         L.max_aligned_positions = max(2, round(rs["max_open_positions"] * 0.6))
         self.decision_engine.enter_threshold = rs["enter_threshold"]
+        self.executor.entry_order = rs["entry_order"]
         ep = self.executor.exit_params
         ep.enabled = rs["adaptive_exits"]
         ep.reduce_risk_at_r = rs["reduce_risk_at_r"]
@@ -309,6 +312,7 @@ class Engine:
         ep.round_trip_cost_pct = cost
         if hasattr(self.broker, "fee_pct"):
             self.broker.fee_pct = v.taker_pct
+            self.broker.maker_fee_pct = v.maker_pct
             self.broker.slippage_pct = rs["slippage_pct"]
             self.broker.maintenance_margin_pct = (
                 v.maintenance_margin_pct if v.futures else 0.0)

@@ -54,12 +54,16 @@ class ExecutionService:
         #: callables set by the engine: symbol -> float|None / Regime|None
         self.sentiment_provider = None
         self.regime_provider = None
+        #: "limit" = maker entry at the signal price (cheaper), "market"
+        self.entry_order = "market"
         self.state = "running"
         self._pending_entry: dict[str, dict] = {}   # client_order_id -> decision detail
         self._closing: set[str] = set()             # close requested, awaiting fill
         self._processed_commands: set[str] = set()
         self._tasks: list[asyncio.Task] = []
         broker.on_fill = self._on_fill
+        if hasattr(broker, "on_cancel"):
+            broker.on_cancel = self._on_entry_cancel
         health.register("execution", stale_after=3600)
         health.set_status("execution", Status.OK, self.state)
 
@@ -202,11 +206,22 @@ class ExecutionService:
             "liq_price": risk.get("liq_price"),
             "entry_reason": "; ".join(sig.get("reasons", []))[:500],
         }
+        tf_s = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600,
+                "4h": 14400}.get(sig.get("timeframe"), 14400)
         self.broker.submit_bracket(BracketOrder(
             client_order_id=coid, symbol=symbol, direction=sig["direction"],
             quantity=risk["quantity"], stop_loss=sig["stop_loss"],
             take_profit=sig["take_profit"], strategy=sig["strategy"],
-            leverage=risk.get("leverage", 1.0)))
+            leverage=risk.get("leverage", 1.0),
+            entry=self.entry_order, limit_price=float(sig.get("entry") or 0.0),
+            expire_s=float(tf_s)))
+
+    def _on_entry_cancel(self, client_order_id: str, reason: str) -> None:
+        detail = self._pending_entry.pop(client_order_id, None)
+        if detail is None:
+            return
+        sym = ((detail.get("decision") or {}).get("best") or {}).get("signal", {}).get("symbol", "?")
+        self._db.audit("trade", f"{sym}: {reason} (cena neprišla k limitu)")
 
     # --- fills (the only source of truth) -------------------------------------
     def _on_fill(self, fill: Fill) -> None:

@@ -58,7 +58,13 @@ def fee_pct(key: str, order_type: str = "taker") -> float:
 
 def round_trip_cost_pct(key: str, order_type: str = "taker",
                         slippage_pct: float = DEFAULT_SLIPPAGE_PCT) -> float:
-    """Total cost of entering AND exiting, in % of the position value."""
+    """Total cost of entering AND exiting, in % of the position value.
+
+    order_type "taker": market in and out (2x taker fee + 2x slippage).
+    order_type "maker": LIMIT entry at our price (maker fee, no slippage),
+    market exit (taker fee + slippage) - stops must always be market."""
+    if order_type == "maker":
+        return fee_pct(key, "maker") + fee_pct(key, "taker") + slippage_pct
     return 2.0 * fee_pct(key, order_type) + 2.0 * slippage_pct
 
 

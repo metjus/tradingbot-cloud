@@ -905,6 +905,7 @@ const FIELDS = {
   ],
   "form-venue": [
     ["fee_venue", "Burza (poplatky a dáta)", "Kraken Futures = long aj short s pákou. Zmena platí po reštarte aplikácie."],
+    ["entry_order", "Typ vstupného príkazu", "limit = lacnejší maker vstup presne na cene signálu (0,02 % a bez sklzu); ak cena neprída k limitu do jednej sviečky, vstup prepadne. market = istý vstup, drahší (0,05 % + sklz)."],
     ["slippage_pct", "Sklz na stranu (%)", "Rozdiel medzi očakávanou a skutočnou cenou."],
     ["allow_short", "Povoliť SHORT", "Na futures zarába aj na poklese ceny. Spotový trh shortovať nedovolí."],
     ["leverage", "Páka (×)", "Páka NEMENÍ riziko obchodu (to určuje stop-loss a riziko na obchod) - znižuje iba sumu zablokovanú v pozícii. Odporúčané 3×, maximum pre EÚ retail 10×."],

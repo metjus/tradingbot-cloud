@@ -211,3 +211,41 @@ def test_donchian_breakout_signal_valid():
     s = Donchian4h().evaluate(ctx_for(bars))
     assert s is not None and s.direction == "LONG" and s.valid()
     assert s.stop_loss < s.entry < s.take_profit
+
+
+# --- limit (maker) entries --------------------------------------------------
+
+def test_limit_entry_fills_at_limit_with_maker_fee():
+    b, fills, t = make_broker()
+    b.maker_fee_pct = 0.02
+    b.on_tick("BTC/USD", 100.0)
+    b.submit_bracket(BracketOrder("c1", "BTC/USD", "LONG", 10.0,
+                                  stop_loss=95.0, take_profit=120.0,
+                                  entry="limit", limit_price=99.5, expire_s=3600))
+    assert not fills and len(b.pending_orders()) == 1   # resting, price above
+    b.on_tick("BTC/USD", 99.4, 1001.0)
+    assert fills and fills[0].kind == "entry"
+    assert fills[0].price == 99.5                        # filled AT the limit
+    assert math.isclose(fills[0].fee, 99.5 * 10 * 0.0002)
+    assert not b.pending_orders()
+
+
+def test_limit_entry_expires_and_reports_cancel():
+    b, fills, t = make_broker()
+    cancels = []
+    b.on_cancel = lambda coid, why: cancels.append(coid)
+    b.on_tick("ETH/USD", 2000.0)
+    b.submit_bracket(BracketOrder("c1", "ETH/USD", "SHORT", 1.0,
+                                  stop_loss=2100.0, take_profit=1800.0,
+                                  entry="limit", limit_price=2010.0, expire_s=600))
+    t["now"] += 601.0
+    b.on_tick("ETH/USD", 2000.0, t["now"])     # never reached 2010
+    assert cancels == ["c1"] and not fills and not b.pending_orders()
+
+
+def test_maker_round_trip_cost_is_cheaper():
+    from argus.fees import round_trip_cost_pct
+    taker = round_trip_cost_pct("kraken_futures", "taker", 0.02)
+    maker = round_trip_cost_pct("kraken_futures", "maker", 0.02)
+    assert math.isclose(taker, 0.14)
+    assert math.isclose(maker, 0.09)

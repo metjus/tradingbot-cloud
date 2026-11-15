@@ -38,6 +38,9 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     "enter_threshold": (70.0, float, 50.0, 95.0),
     # execution venue & costs
     "fee_venue": ("kraken_futures", str, None, None),
+    # limit = maker entry at the signal price (cheaper: 0.02 % vs 0.05 %,
+    # no entry slippage); unfilled entries expire after one signal bar
+    "entry_order": ("limit", str, None, None),
     "slippage_pct": (0.02, float, 0.0, 0.5),
     "allow_short": (True, bool, None, None),               # futures: short allowed
     # futures only: position leverage (EU retail cap 10x on Kraken Futures).
@@ -69,6 +72,7 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
 
 CHOICES = {
     "fee_venue": list(VENUES),
+    "entry_order": ["limit", "market"],
     "llm_provider": ["none", "claude", "openai", "gemini"],
 }
 

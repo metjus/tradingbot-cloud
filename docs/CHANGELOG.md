@@ -1,5 +1,16 @@
 # Zoznam zmien
 
+## 1.2.x - lacnejšie maker vstupy
+
+- Vstup do pozície ide predvolene **limitným (maker) príkazom** presne na
+  cene signálu: poplatok 0,02 % namiesto 0,05 % a žiadny sklz pri vstupe.
+  Náklady na obchod klesli z 0,14 % na 0,09 % hodnoty pozície. Ak cena
+  k limitu do jednej sviečky neprída, vstup prepadne (zapíše sa do logu).
+  Na 2 rokoch dát to zdvihlo výnos stratégie mimo vzorky z ~5 % na ~7 %
+  ročne pri rovnakom riziku. V Settings sa dá prepnúť späť na market.
+- Otestované aj pyramídovanie (prikupovanie v zisku pri +1R/+2R): výnos
+  skoro nezmenený, prepad ~2× väčší - nenasadené.
+
 ## 1.2 (november 2026) - Kraken Futures: short, páka, viac mincí
 
 Prečo zmena burzy: Binance od 1. 7. 2026 obmedzil služby pre účty z EÚ
