@@ -197,12 +197,16 @@ class ExecutionService:
             "decision": decision, "stop_loss": sig["stop_loss"],
             "take_profit": sig["take_profit"], "strategy": sig["strategy"],
             "risk_pct": risk.get("risk_pct", 0.0),
+            "leverage": risk.get("leverage", 1.0),
+            "margin": risk.get("margin", 0.0),
+            "liq_price": risk.get("liq_price"),
             "entry_reason": "; ".join(sig.get("reasons", []))[:500],
         }
         self.broker.submit_bracket(BracketOrder(
             client_order_id=coid, symbol=symbol, direction=sig["direction"],
             quantity=risk["quantity"], stop_loss=sig["stop_loss"],
-            take_profit=sig["take_profit"], strategy=sig["strategy"]))
+            take_profit=sig["take_profit"], strategy=sig["strategy"],
+            leverage=risk.get("leverage", 1.0)))
 
     # --- fills (the only source of truth) -------------------------------------
     def _on_fill(self, fill: Fill) -> None:
@@ -222,7 +226,11 @@ class ExecutionService:
                                "score": best.get("score"),
                                "factors": best.get("factors"),
                                "signal": best.get("signal"),
-                               "features_m5": decision.get("features_m5")})
+                               "features_m5": decision.get("features_m5")},
+                leverage=detail.get("leverage", 1.0),
+                margin=detail.get("margin", 0.0) or
+                fill.price * fill.quantity / max(1.0, detail.get("leverage", 1.0)),
+                liq_price=detail.get("liq_price"))
             if self.sentiment_provider is not None:
                 pos.entry_sentiment = self.sentiment_provider(fill.symbol)
             self._db.audit("trade", f"OPEN {fill.symbol} {fill.direction} "
@@ -251,6 +259,7 @@ class ExecutionService:
                 "symbol": pos.symbol, "direction": pos.direction,
                 "quantity": pos.quantity, "entry": pos.entry_price,
                 "invested": round(pos.invested, 2),
+                "leverage": pos.leverage, "liq_price": pos.liq_price,
                 "stop_loss": pos.stop_loss, "take_profit": pos.take_profit,
                 "strategy": pos.strategy}
 

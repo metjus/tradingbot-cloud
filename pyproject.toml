@@ -1,6 +1,6 @@
 [project]
 name = "argus-engine"
-version = "1.1.0"
+version = "1.2.0"
 description = "ARGUS - Autonomous Trading Intelligence (engine core)"
 requires-python = ">=3.12"
 dependencies = [

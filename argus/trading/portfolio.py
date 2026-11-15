@@ -41,11 +41,18 @@ class OpenPosition:
     max_favorable_r: float = 0.0     # best unrealised profit seen, in R
     entry_sentiment: float | None = None
     tp_extensions: int = 0
+    leverage: float = 1.0
+    margin: float = 0.0              # money blocked (notional / leverage)
+    liq_price: float | None = None   # futures: estimated liquidation price
+
+    @property
+    def notional(self) -> float:
+        return self.entry_price * self.quantity
 
     @property
     def invested(self) -> float:
-        """Money put into the position (entry value)."""
-        return self.entry_price * self.quantity
+        """Money actually blocked in the position (margin on futures)."""
+        return self.margin if self.margin > 0 else self.notional
 
     @property
     def risk_per_unit(self) -> float:
@@ -100,6 +107,7 @@ class Portfolio:
             rows = s.execute(select(Trade).where(
                 Trade.status == "open", Trade.mode == self.mode)).scalars().all()
         for t in rows:
+            ec = t.entry_context or {}
             self.positions[t.client_order_id] = OpenPosition(
                 trade_id=t.id, client_order_id=t.client_order_id, symbol=t.symbol,
                 direction=t.direction, quantity=t.quantity or 0.0,
@@ -107,7 +115,10 @@ class Portfolio:
                 take_profit=t.take_profit or 0.0,
                 opened_at=t.entry_ts or datetime.now(timezone.utc),
                 strategy=t.strategy, risk_pct=t.risk_pct or 0.0, entry_fee=t.fees,
-                initial_stop=t.stop_loss or 0.0)
+                initial_stop=t.stop_loss or 0.0,
+                leverage=float(ec.get("leverage") or 1.0),
+                margin=float(ec.get("margin") or 0.0),
+                liq_price=ec.get("liq_price"))
         if rows:
             log.info("recovered %d open %s positions from DB", len(rows), self.mode)
 
@@ -122,8 +133,12 @@ class Portfolio:
     def record_entry(self, client_order_id: str, symbol: str, direction: str,
                      quantity: float, price: float, fee: float, stop_loss: float,
                      take_profit: float, strategy: str, risk_pct: float,
-                     entry_reason: str, entry_context: dict) -> OpenPosition:
+                     entry_reason: str, entry_context: dict,
+                     leverage: float = 1.0, margin: float = 0.0,
+                     liq_price: float | None = None) -> OpenPosition:
         self._roll_day()
+        entry_context = {**entry_context, "leverage": leverage,
+                         "margin": margin, "liq_price": liq_price}
         with self.db.session() as s:
             t = Trade(client_order_id=client_order_id, broker=self.broker_name,
                       mode=self.mode, symbol=symbol, direction=direction,
@@ -138,7 +153,8 @@ class Portfolio:
         pos = OpenPosition(trade_id, client_order_id, symbol, direction, quantity,
                            price, stop_loss, take_profit,
                            datetime.now(timezone.utc), strategy, risk_pct, fee,
-                           initial_stop=stop_loss)
+                           initial_stop=stop_loss, leverage=leverage,
+                           margin=margin, liq_price=liq_price)
         self.positions[client_order_id] = pos
         self.trades_today += 1
         return pos
@@ -180,15 +196,43 @@ class Portfolio:
         return AccountState(equity=self.equity, day_start_equity=self.day_start_equity,
                             open_positions=len(self.positions),
                             trades_today=self.trades_today, open_risk_pct=open_risk,
-                            open_notional=self.invested_total())
+                            open_notional=self.invested_total(),
+                            open_long=sum(1 for p in self.positions.values()
+                                          if p.direction == "LONG"),
+                            open_short=sum(1 for p in self.positions.values()
+                                           if p.direction == "SHORT"))
 
     def invested_total(self) -> float:
         return sum(p.invested for p in self.positions.values())
+
+    def stats(self) -> dict:
+        """Win rate / profit factor / max drawdown from closed trades."""
+        with self.db.session() as s:
+            pls = s.execute(select(Trade.pl).where(
+                Trade.status == "closed", Trade.mode == self.mode)
+                .order_by(Trade.id)).scalars().all()
+        pls = [p or 0.0 for p in pls]
+        wins = [p for p in pls if p > 0]
+        losses = [-p for p in pls if p <= 0]
+        eq, peak, maxdd = self.start_equity, self.start_equity, 0.0
+        for p in pls:
+            eq += p
+            peak = max(peak, eq)
+            if peak > 0:
+                maxdd = max(maxdd, (peak - eq) / peak * 100.0)
+        return {
+            "closed_trades": len(pls),
+            "win_rate": round(len(wins) / len(pls) * 100.0, 1) if pls else None,
+            "profit_factor": round(sum(wins) / sum(losses), 2)
+            if losses and sum(losses) > 0 else (None if not wins else 99.0),
+            "max_drawdown_pct": round(maxdd, 2) if pls else None,
+        }
 
     def snapshot(self) -> dict:
         self._roll_day()
         day_pl = self.equity - self.day_start_equity
         return {
+            **self.stats(),
             "equity": round(self.equity, 2),
             "day_pl": round(day_pl, 2),
             "day_pl_pct": round(day_pl / self.day_start_equity * 100.0, 3)
@@ -200,6 +244,8 @@ class Portfolio:
                 {"client_order_id": p.client_order_id,
                  "symbol": p.symbol, "direction": p.direction,
                  "invested": round(p.invested, 2),
+                 "notional": round(p.notional, 2),
+                 "leverage": p.leverage, "liq_price": p.liq_price,
                  "quantity": p.quantity, "entry": p.entry_price,
                  "stop_loss": p.stop_loss, "take_profit": p.take_profit,
                  "strategy": p.strategy,

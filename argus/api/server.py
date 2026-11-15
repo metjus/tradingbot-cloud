@@ -328,6 +328,14 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         start_eq = settings.paper_equity if settings is not None else 10_000.0
         return evaluate_readiness(db, start_eq).as_dict()
 
+    @app.get("/api/market")
+    def api_market() -> dict:
+        """Live per-coin market info: 24h volume (coin + USD), funding,
+        mark price - for the volume display and the futures UI."""
+        if engine is None:
+            return {"info": {}, "symbols": []}
+        return engine.market_info()
+
     @app.get("/api/config")
     def api_config() -> dict:
         if settings is None:

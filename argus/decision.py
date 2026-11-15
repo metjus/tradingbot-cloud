@@ -25,7 +25,7 @@ from .strategy.library import ALL_STRATEGIES
 
 log = logging.getLogger(__name__)
 
-M5, M15, H1 = Timeframe.M5, Timeframe.M15, Timeframe.H1
+M5, M15, H1, H4 = Timeframe.M5, Timeframe.M15, Timeframe.H1, Timeframe.H4
 
 
 @dataclass(slots=True)
@@ -88,9 +88,11 @@ class DecisionEngine:
         else:
             f["regime_fit"] = 4.0
 
-        # multi-timeframe trend alignment (0-15)
+        # multi-timeframe trend alignment (0-15); frames depend on the
+        # signal's own timeframe (5m intraday vs 4h futures strategies)
         align = 0.0
-        for tf, w in ((M15, 9.0), (H1, 6.0)):
+        frames = ((H1, 9.0), (H4, 6.0)) if sig.timeframe in (H1, H4)             else ((M15, 9.0), (H1, 6.0))
+        for tf, w in frames:
             ff = ctx.f(tf)
             if ff is not None and ff.ema21 is not None:
                 if (sig.direction == "LONG") == (ff.close > ff.ema21):
@@ -102,18 +104,20 @@ class DecisionEngine:
         _, _, rr = net_reward_risk(sig, self.risk.limits.round_trip_cost_pct)
         f["risk_reward"] = max(0.0, min(15.0, (rr - 0.6) * 6.25))
 
-        # volume support (0-10)
-        f5 = ctx.f(M5)
-        vr = f5.vol_ratio if f5 is not None else None
-        f["volume"] = 0.0 if vr is None else max(0.0, min(10.0, (vr - 0.8) * 8.0))
+        # volume support (0-10), read on the signal's own timeframe
+        fs = ctx.f(sig.timeframe) or ctx.f(M5)
+        vr = fs.vol_ratio if fs is not None else None
+        f["volume"] = 5.0 if vr is None else max(0.0, min(10.0, (vr - 0.6) * 8.0))
 
-        # volatility sanity (0-10): penalise extreme ATR% regimes
+        # volatility sanity (0-10): penalise extreme ATR% regimes; the
+        # healthy band scales with the timeframe (sqrt-of-time)
         vol_score = 5.0
-        if f5 is not None and f5.atr14 is not None and f5.close:
-            atr_pct = f5.atr14 / f5.close * 100.0
-            if 0.08 <= atr_pct <= 0.9:
+        if fs is not None and fs.atr14 is not None and fs.close:
+            k = (sig.timeframe.seconds / 300.0) ** 0.5
+            atr_pct = fs.atr14 / fs.close * 100.0
+            if 0.08 * k <= atr_pct <= 0.9 * k:
                 vol_score = 10.0
-            elif atr_pct > 1.8 or atr_pct < 0.03:
+            elif atr_pct > 1.8 * k or atr_pct < 0.03 * k:
                 vol_score = 0.0
         f["volatility_fit"] = vol_score
 
@@ -132,10 +136,9 @@ class DecisionEngine:
         # ML setup scorer: P(TP before SL) mapped to -20..+20 around p=0.5.
         # Absent or failing model = 0 (engine fully functional without ML).
         if self.ml_scorer is not None:
-            f5s = ctx.f(M5)
-            if f5s is not None:
+            if fs is not None:
                 try:
-                    p = self.ml_scorer.score_live(sig, ctx.regime, f5s.as_dict(), ctx.now_ts)
+                    p = self.ml_scorer.score_live(sig, ctx.regime, fs.as_dict(), ctx.now_ts)
                     f["ml_probability"] = (max(0.0, min(1.0, p)) - 0.5) * 40.0
                 except Exception as exc:
                     log.warning("ml scorer failed, ignoring: %s", exc)

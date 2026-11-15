@@ -33,6 +33,12 @@ class RiskLimits:
     max_position_eur: float | None = None  # max value of a single position
     round_trip_cost_pct: float = 0.0       # fees + slippage, entry AND exit, % of value
     allow_short: bool = True               # False on spot crypto venues
+    leverage: float = 1.0                  # futures: notional / margin
+    max_leverage: float = 1.0              # venue/regulatory cap
+    maintenance_margin_pct: float = 0.0    # futures: liquidation threshold
+    max_aligned_positions: int = 3         # positions in the SAME direction
+                                           # (crypto moves together - this caps
+                                           # stacking one big correlated bet)
 
     def effective_risk_pct(self) -> float:
         return min(self.risk_per_trade_pct, self.max_risk_per_trade_pct)
@@ -45,7 +51,9 @@ class AccountState:
     open_positions: int = 0
     trades_today: int = 0
     open_risk_pct: float = 0.0   # sum of risk % currently at stake
-    open_notional: float = 0.0   # value currently invested in open positions
+    open_notional: float = 0.0   # margin currently blocked in open positions
+    open_long: int = 0           # open LONG positions (correlation cap)
+    open_short: int = 0
 
     @property
     def daily_pl_pct(self) -> float:
@@ -62,6 +70,9 @@ class RiskVerdict:
     risk_amount: float = 0.0
     risk_pct: float = 0.0
     notional: float = 0.0
+    margin: float = 0.0          # money blocked (notional / leverage)
+    leverage: float = 1.0
+    liq_price: float | None = None   # estimated isolated-margin liquidation
     cost_estimate: float = 0.0   # expected round-trip fees + slippage in EUR
     net_rr: float = 0.0
 
@@ -69,6 +80,8 @@ class RiskVerdict:
         return {"approved": self.approved, "vetoes": self.vetoes,
                 "quantity": self.quantity, "risk_amount": round(self.risk_amount, 2),
                 "risk_pct": self.risk_pct, "notional": round(self.notional, 2),
+                "margin": round(self.margin, 2), "leverage": self.leverage,
+                "liq_price": self.liq_price,
                 "cost_estimate": round(self.cost_estimate, 2),
                 "net_rr": round(self.net_rr, 2)}
 
@@ -128,6 +141,11 @@ class RiskSupervisor:
                 f"denný limit straty dosiahnutý ({account.daily_pl_pct:.2f}% <= -{L.daily_max_loss_pct}%)")
         if account.open_positions >= L.max_open_positions:
             vetoes.append(f"max. počet otvorených pozícií ({account.open_positions})")
+        aligned = account.open_long if signal.direction == "LONG" else account.open_short
+        if aligned >= L.max_aligned_positions:
+            vetoes.append(
+                f"už {aligned} pozícií v smere {signal.direction} - krypto sa hýbe "
+                f"spolu, ďalšia by len zväčšila tú istú stávku")
         if account.trades_today >= L.max_daily_trades:
             vetoes.append(f"max. počet obchodov za deň ({account.trades_today})")
         if spread_pct is not None and spread_pct > L.max_spread_pct:
@@ -143,7 +161,28 @@ class RiskSupervisor:
                 f"otvorené riziko {account.open_risk_pct:.2f}% + nové {risk_pct:.2f}% "
                 f"by prekročilo denný limit {L.daily_max_loss_pct}%")
 
-        # budget left for a new position
+        lev = max(1.0, min(L.leverage, L.max_leverage))
+
+        # futures: the estimated liquidation price must lie far BEHIND the
+        # stop-loss, so the stop always fires first (isolated margin)
+        liq_price: float | None = None
+        if lev > 1.0 or L.maintenance_margin_pct > 0:
+            move = (1.0 / lev - L.maintenance_margin_pct / 100.0)
+            if move <= 0:
+                vetoes.append("páka je nad limitom burzy")
+            else:
+                sgn = 1.0 if signal.direction == "LONG" else -1.0
+                liq_price = signal.entry * (1.0 - sgn * move)
+                stop_dist = abs(signal.entry - signal.stop_loss)
+                liq_dist = abs(signal.entry - liq_price)
+                if stop_dist > 0.7 * liq_dist:
+                    vetoes.append(
+                        f"stop-loss je príliš blízko likvidačnej ceny pri páke {lev:g}x "
+                        f"(stop {stop_dist / signal.entry * 100:.1f}% vs likvidácia "
+                        f"{liq_dist / signal.entry * 100:.1f}%) - zníž páku alebo preskoč")
+
+        # budget left for a new position (budget binds the MARGIN, i.e. the
+        # money actually blocked; with leverage the notional may be larger)
         budget_left = None
         if L.budget_eur is not None:
             budget_left = min(L.budget_eur, account.equity) - account.open_notional
@@ -151,16 +190,17 @@ class RiskSupervisor:
                 vetoes.append("rozpočet bota je celý použitý v otvorených pozíciách")
 
         if vetoes:
-            return RiskVerdict(approved=False, vetoes=vetoes, net_rr=net_rr)
+            return RiskVerdict(approved=False, vetoes=vetoes, net_rr=net_rr,
+                               leverage=lev, liq_price=liq_price)
 
         # size so that a stop-out INCLUDING costs loses exactly the risk amount
         risk_amount = capital * risk_pct / 100.0
         qty = risk_amount / net_risk
-        caps = [capital * L.max_position_notional_pct / 100.0]
+        caps = [capital * L.max_position_notional_pct / 100.0 * lev]
         if L.max_position_eur is not None:
-            caps.append(L.max_position_eur)
+            caps.append(L.max_position_eur * lev)      # per-position cap on margin
         if budget_left is not None:
-            caps.append(budget_left)
+            caps.append(budget_left * lev)
         max_notional = min(caps)
         if qty * signal.entry > max_notional:
             qty = max_notional / signal.entry
@@ -171,5 +211,6 @@ class RiskSupervisor:
         notional = qty * signal.entry
         return RiskVerdict(approved=True, quantity=qty, risk_amount=risk_amount,
                            risk_pct=risk_pct, notional=notional,
+                           margin=notional / lev, leverage=lev, liq_price=liq_price,
                            cost_estimate=notional * L.round_trip_cost_pct / 100.0,
                            net_rr=net_rr)

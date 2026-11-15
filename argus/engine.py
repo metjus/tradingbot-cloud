@@ -23,6 +23,8 @@ from .db.database import Database
 from .decision import DecisionEngine
 from .marketdata.aggregator import CandleAggregator
 from .marketdata.model import Candle, Tick, Timeframe
+from .marketdata.kraken_futures import (KrakenFuturesProvider, KrakenFuturesTicker,
+                                        fetch_universe)
 from .marketdata.providers import (AlpacaProvider, KrakenProvider, KrakenTicker,
                                    PollingProvider)
 from .monitoring.health import HealthMonitor, Status
@@ -53,7 +55,8 @@ class Engine:
         self.crypto_symbols: list[str] = (
             list(settings.crypto_symbols) if "crypto_symbols" in settings.model_fields_set
             else list(self.runtime["symbols"]))
-        self.ticker: KrakenTicker | None = None
+        self.ticker: KrakenTicker | KrakenFuturesTicker | None = None
+        self.universe: list[dict] = []     # auto-selected coins (futures)
         self.last_tick: dict[str, Tick] = {}
         self.forming_m1: dict[str, Candle] = {}
 
@@ -65,7 +68,12 @@ class Engine:
             log.info("loaded active ML model setup-scorer v%s", ml_scorer.meta.version)
         from .analysis.selector import StrategySelector
         self.selector = StrategySelector(audit=self.db.audit)
-        self.decision_engine = DecisionEngine(self.risk, enter_threshold=self.runtime["enter_threshold"],
+        strategies = None
+        if venue(self.runtime["fee_venue"]).futures:
+            from .strategy.futures import FUTURES_STRATEGIES
+            strategies = list(FUTURES_STRATEGIES)
+        self.decision_engine = DecisionEngine(self.risk, strategies=strategies,
+                                              enter_threshold=self.runtime["enter_threshold"],
                                               ml_scorer=ml_scorer, selector=self.selector)
 
         from .news.calendar import EventCalendar
@@ -109,18 +117,23 @@ class Engine:
             for pos in self.portfolio.positions.values():
                 self.broker.restore(pos.client_order_id, pos.symbol, pos.direction,
                                     pos.quantity, pos.entry_price, pos.stop_loss,
-                                    pos.take_profit, pos.opened_at.timestamp(), pos.strategy)
+                                    pos.take_profit, pos.opened_at.timestamp(), pos.strategy,
+                                    leverage=pos.leverage)
             if self.portfolio.positions:
                 self.db.audit("trade", f"Obnovené otvorené paper pozície po reštarte: "
                               f"{len(self.portfolio.positions)}")
 
         from .ml.scheduler import TrainingScheduler
         tracked = self.crypto_symbols + settings.stock_symbols
+        # 4h futures strategies trade rarely: calibration needs a year of 1h
+        hist_days = settings.ml_history_days
+        if venue(self.runtime["fee_venue"]).futures:
+            hist_days = max(hist_days, 365)
         self.ml_scheduler = TrainingScheduler(
             self.db, self.bus, self.health, self.registry, self.selector,
             symbols=tracked or ["BTC/USD"],
             train_hour_utc=settings.ml_train_hour_utc,
-            history_days=settings.ml_history_days,
+            history_days=hist_days,
             enabled=settings.ml_train_enabled, runtime=self.runtime)
         self.ml_scheduler.on_model_change = self.reload_model
 
@@ -150,7 +163,8 @@ class Engine:
         from .cloud.sync import CloudSync
         return CloudSync(self.db, self.bus, self.health, self.executor, self.portfolio,
                          self.news, url, token, self.settings.cloud_push_seconds,
-                         self.settings.cloud_poll_seconds)
+                         self.settings.cloud_poll_seconds,
+                         market_provider=self._market_compact)
 
     async def pair_cloud(self, url: str, pairing_code: str = "") -> dict:
         """Claim a freshly deployed ARGUS Worker and start syncing to it."""
@@ -235,6 +249,27 @@ class Engine:
                 if self.cloud else 0,
                 "server_ts": self.cloud.remote.get("server_ts") if self.cloud else None}
 
+    def _market_compact(self) -> dict:
+        """Small per-coin market summary for the phone."""
+        out = {}
+        info = self.ticker.info if self.ticker is not None             and hasattr(self.ticker, "info") else {}
+        for sym in self.crypto_symbols:
+            m = info.get(sym)
+            if m:
+                out[sym] = {"last": m["last"], "vq": round(m["volume_quote"]),
+                            "v": m["vol24h"], "f": m["funding_rate_h"]}
+        return {"futures": venue(self.runtime["fee_venue"]).futures, "coins": out}
+
+    def market_info(self) -> dict:
+        """Per-coin market info for the UI: 24h volume (coin + USD),
+        funding, mark price, open interest."""
+        info = dict(self.ticker.info) if self.ticker is not None             and hasattr(self.ticker, "info") else {}
+        return {"venue": self.runtime["fee_venue"],
+                "futures": venue(self.runtime["fee_venue"]).futures,
+                "symbols": self.crypto_symbols,
+                "auto": bool(self.universe),
+                "info": info}
+
     def reload_model(self) -> None:
         """Hot-swap the active ML model into the decision engine."""
         scorer = self.registry.load_active("setup-scorer")
@@ -254,7 +289,12 @@ class Engine:
         L.budget_eur = rs["budget_eur"]
         L.max_position_eur = rs["max_position_eur"]
         L.round_trip_cost_pct = cost
-        L.allow_short = rs["allow_short"]
+        v = venue(rs["fee_venue"])
+        L.allow_short = rs["allow_short"] and (v.futures or v.can_short_spot)
+        L.leverage = rs["leverage"] if v.futures else 1.0
+        L.max_leverage = v.max_leverage if v.futures else 1.0
+        L.maintenance_margin_pct = v.maintenance_margin_pct if v.futures else 0.0
+        L.max_aligned_positions = max(2, round(rs["max_open_positions"] * 0.6))
         self.decision_engine.enter_threshold = rs["enter_threshold"]
         ep = self.executor.exit_params
         ep.enabled = rs["adaptive_exits"]
@@ -263,12 +303,15 @@ class Engine:
         ep.trail_start_r = rs["trail_start_r"]
         ep.trail_distance_r = rs["trail_distance_r"]
         ep.giveback_pct = rs["giveback_pct"]
+        ep.giveback_min_r = rs["giveback_min_r"]
         ep.sentiment_exit = rs["sentiment_exit"]
         ep.regime_exit = rs["regime_exit"]
         ep.round_trip_cost_pct = cost
         if hasattr(self.broker, "fee_pct"):
-            self.broker.fee_pct = venue(rs["fee_venue"]).taker_pct
+            self.broker.fee_pct = v.taker_pct
             self.broker.slippage_pct = rs["slippage_pct"]
+            self.broker.maintenance_margin_pct = (
+                v.maintenance_margin_pct if v.futures else 0.0)
         log.info("settings applied: venue %s, round-trip cost %.3f%%, budget %.0f",
                  rs["fee_venue"], cost, rs["budget_eur"])
 
@@ -325,10 +368,44 @@ class Engine:
         self.bus.publish(CANDLE, bar)
 
     # --- lifecycle ----------------------------------------------------------
+    async def _auto_universe(self) -> None:
+        """Futures venue: pick the most liquid perpetuals by 24h USD volume
+        (meme coins and tokenised stocks excluded). Falls back to the
+        configured list when the venue is unreachable."""
+        rs = self.runtime
+        if not venue(rs["fee_venue"]).futures or not rs["auto_symbols"]:
+            return
+        try:
+            uni = await fetch_universe(limit=rs["max_symbols"])
+        except Exception as exc:
+            log.warning("universe fetch failed: %s", exc)
+            self.db.audit("data", f"Automatický výber mincí zlyhal: {exc}", "warning")
+            return
+        if not uni:
+            return
+        self.universe = uni
+        syms = [u["symbol"] for u in uni]
+        if "BTC/USD" not in syms:
+            syms.insert(0, "BTC/USD")          # BTC data drives the trend filter
+        self.crypto_symbols = syms
+        self.db.audit("data", f"Mince podľa likvidity (24h objem v USD): {', '.join(syms)}",
+                      data={u["symbol"]: round(u["volume_quote"]) for u in uni})
+
     def _build_providers(self) -> None:
         s = self.settings
         if self.crypto_symbols:
-            if s.crypto_provider == "kraken":
+            if venue(self.runtime["fee_venue"]).futures:
+                self.providers.append(KrakenFuturesProvider(
+                    self.crypto_symbols, self._on_m1, self.health,
+                    poll_seconds=s.candle_poll_seconds))
+                self.ticker = KrakenFuturesTicker(self.crypto_symbols, self._on_tick,
+                                                  self.health, interval=s.tick_seconds)
+                from .trading.broker import PaperBroker
+                if isinstance(self.broker, PaperBroker):
+                    self.broker.funding_provider = lambda sym: (
+                        (self.ticker.info.get(sym) or {}).get("funding_rate_h")
+                        if self.ticker else None)
+            elif s.crypto_provider == "kraken":
                 self.providers.append(KrakenProvider(
                     self.crypto_symbols, self._on_m1, self.health,
                     poll_seconds=s.candle_poll_seconds))
@@ -347,6 +424,18 @@ class Engine:
                 self.db.audit("system", "Alpaca keys missing - stock data disabled", "warning")
 
     async def _backfill(self) -> None:
+        # futures: pull 1h/4h history from the charts API so the 4h EMA200
+        # and the analysis windows exist right from the first start
+        if venue(self.runtime["fee_venue"]).futures and self.crypto_symbols:
+            from .marketdata.kraken_futures import fetch_history
+            for sym in self.crypto_symbols:
+                for days, res in ((50, "1h"), (90, "4h")):
+                    try:
+                        bars = await fetch_history(sym, days, res)
+                        if bars:
+                            self.db.upsert_candles(bars)
+                    except Exception as exc:
+                        log.warning("futures backfill %s %s failed: %s", sym, res, exc)
         for p in self.providers:
             for sym in p.symbols:
                 try:
@@ -384,6 +473,7 @@ class Engine:
         self.health.set_status("engine", Status.OK, "running")
         self.health.start()
 
+        await self._auto_universe()
         self._build_providers()
         await self._backfill()
         for p in self.providers:

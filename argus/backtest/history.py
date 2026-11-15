@@ -112,3 +112,20 @@ def resample(candles: list[Candle], target: Timeframe) -> list[Candle]:
             out.append(cur)
             cur = None
     return out
+
+
+async def ensure_history_futures(db: Database, symbol: str, days: int) -> list[Candle]:
+    """1h Kraken Futures candles for backtests/ML, downloaded only when the
+    local cache is thin or stale."""
+    from ..marketdata.kraken_futures import fetch_history
+    want_from = int(time.time()) - days * 86400
+    have = db.get_candles(symbol, Timeframe.H1, limit=days * 24 + 10)
+    have = [c for c in have if c.ts >= want_from]
+    span_ok = have and have[0].ts <= want_from + 3 * 86400
+    fresh_ok = have and have[-1].ts >= int(time.time()) - 6 * 3600
+    if span_ok and fresh_ok and len(have) > days * 24 * 0.7:
+        return have
+    bars = await fetch_history(symbol, days, "1h")
+    if bars:
+        db.upsert_candles(bars)
+    return db.get_candles(symbol, Timeframe.H1, limit=days * 24 + 10)

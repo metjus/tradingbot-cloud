@@ -92,9 +92,11 @@ v prehliadači, nie v appke na ploche.
 
 ## Ako aplikácia funguje
 
+Appku aktualizuješ potiahnutím prstom nadol (zobrazí „Aktualizované").
+
 | Obrazovka | Čo ukazuje |
 |---|---|
-| **Prehľad** | kapitál, denný a celkový zisk, koľko je vložené v pozíciách, krivka, otvorené pozície so SL/TP a aktuálnou cenou, posledné udalosti |
+| **Prehľad** | kapitál, denný a celkový zisk, win rate, vložené v pozíciách, krivka, otvorené pozície (SL/TP, páka, likvidačná cena), trh s 24h objemom a fundingom, posledné udalosti |
 | **História** | uzatvorené obchody s výsledkom a dôvodom výstupu |
 | **Správy** | sentiment pre každú mincu a posledné správy |
 | **Ovládanie** | Spustiť, Pauza, EMERGENCY STOP, výber notifikácií, odpojenie telefónu |

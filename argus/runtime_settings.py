@@ -37,20 +37,28 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     "min_rr_net": (1.3, float, 1.0, 5.0),                 # reward/risk AFTER costs
     "enter_threshold": (70.0, float, 50.0, 95.0),
     # execution venue & costs
-    "fee_venue": ("binance", str, None, None),
+    "fee_venue": ("kraken_futures", str, None, None),
     "slippage_pct": (0.02, float, 0.0, 0.5),
-    "allow_short": (False, bool, None, None),              # spot crypto cannot short
+    "allow_short": (True, bool, None, None),               # futures: short allowed
+    # futures only: position leverage (EU retail cap 10x on Kraken Futures).
+    # Leverage does NOT change the risk per trade (that is set by the stop),
+    # it only lowers the margin blocked per position.
+    "leverage": (3.0, float, 1.0, 10.0),
     # adaptive exits
     "adaptive_exits": (True, bool, None, None),
-    "reduce_risk_at_r": (0.5, float, 0.2, 3.0),
-    "break_even_at_r": (0.8, float, 0.3, 3.0),
-    "trail_start_r": (1.2, float, 0.5, 5.0),
-    "trail_distance_r": (0.8, float, 0.2, 3.0),
-    "giveback_pct": (60.0, float, 20.0, 95.0),
+    # defaults re-validated on 2y Kraken Futures data with the 4h strategies
+    "reduce_risk_at_r": (0.8, float, 0.2, 3.0),
+    "break_even_at_r": (1.0, float, 0.3, 3.0),
+    "trail_start_r": (1.5, float, 0.5, 5.0),
+    "trail_distance_r": (1.5, float, 0.2, 3.0),
+    "giveback_pct": (70.0, float, 20.0, 95.0),
+    "giveback_min_r": (2.0, float, 0.5, 5.0),
     "sentiment_exit": (True, bool, None, None),
     "regime_exit": (True, bool, None, None),
     # instruments (applied on next engine start)
     "symbols": (DEFAULT_SYMBOLS, list, None, None),
+    "auto_symbols": (True, bool, None, None),   # pick coins by 24h USD volume
+    "max_symbols": (10, int, 2, 20),
     # ML
     "ml_auto_activate": (True, bool, None, None),
     # LLM news analysis (one provider active at a time)
@@ -64,7 +72,7 @@ CHOICES = {
     "llm_provider": ["none", "claude", "openai", "gemini"],
 }
 
-RESTART_REQUIRED = {"symbols"}
+RESTART_REQUIRED = {"symbols", "fee_venue", "auto_symbols", "max_symbols"}
 
 
 def _coerce(name: str, value: Any) -> Any:

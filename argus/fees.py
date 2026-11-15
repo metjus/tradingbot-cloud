@@ -22,19 +22,28 @@ class Venue:
     maker_pct: float
     taker_pct: float
     can_short_spot: bool = False
+    futures: bool = False          # perpetual futures: short + leverage
+    max_leverage: float = 1.0      # venue/regulatory cap (EU retail)
+    maintenance_margin_pct: float = 0.0   # isolated-margin maintenance, % of notional
+    funding_pct_per_hour: float = 0.0     # typical |funding| cost estimate
     note: str = ""
 
 
 VENUES: dict[str, Venue] = {
-    "binance": Venue("binance", "Binance (VIP 0)", 0.10, 0.10,
-                     note="Najnižšie poplatky pre malý účet."),
+    "kraken_futures": Venue(
+        "kraken_futures", "Kraken Futures (perpetuals, Tier 1)", 0.02, 0.05,
+        futures=True, max_leverage=10.0, maintenance_margin_pct=5.0,
+        funding_pct_per_hour=0.002,
+        note="Long aj short, páka, v EÚ regulované (MiFID). Poplatky ako Binance Futures."),
+    "binance": Venue("binance", "Binance spot (VIP 0)", 0.10, 0.10,
+                     note="Od 1. 7. 2026 pre EÚ účty nedostupné (MiCA)."),
     "binance_bnb": Venue("binance_bnb", "Binance (VIP 0, poplatky v BNB)", 0.075, 0.075,
                          note="Vyžaduje držať BNB na platbu poplatkov."),
-    "kraken": Venue("kraken", "Kraken Pro (Tier 1)", 0.40, 0.80,
+    "kraken": Venue("kraken", "Kraken Pro spot (Tier 1)", 0.40, 0.80,
                     note="Od 9. 7. 2026 veľmi drahé pre krátkodobé obchody."),
 }
 
-DEFAULT_VENUE = "binance"
+DEFAULT_VENUE = "kraken_futures"
 DEFAULT_SLIPPAGE_PCT = 0.02   # per side, liquid majors
 
 
@@ -57,4 +66,5 @@ def venues_table() -> list[dict]:
     return [{"key": v.key, "name": v.name, "maker_pct": v.maker_pct,
              "taker_pct": v.taker_pct,
              "round_trip_pct": round(round_trip_cost_pct(v.key), 3),
+             "futures": v.futures, "max_leverage": v.max_leverage,
              "note": v.note} for v in VENUES.values()]

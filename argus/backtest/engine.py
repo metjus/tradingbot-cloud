@@ -29,7 +29,7 @@ from .history import resample
 
 log = logging.getLogger(__name__)
 
-M5, M15, H1 = Timeframe.M5, Timeframe.M15, Timeframe.H1
+M5, M15, H1, H4 = Timeframe.M5, Timeframe.M15, Timeframe.H1, Timeframe.H4
 
 
 @dataclass(slots=True)
@@ -210,13 +210,120 @@ class Backtester:
         return res
 
 
+    # --- higher-timeframe loop (futures strategies on 1h/4h bars) ---------
+    def run_htf(self, symbol: str, h1: list[Candle],
+                btc_h1: list[Candle] | None = None,
+                max_hold_bars: int = 480) -> BacktestResult:
+        """Replay on 1h base bars with 4h context: the pipeline the futures
+        strategies live on. ``max_hold_bars`` is in hours (20 days)."""
+        res = BacktestResult(symbol=symbol, bars=len(h1))
+        warmup = 260
+        if len(h1) <= warmup:
+            return res
+        h4_all = resample(h1, H4)
+        btc_h4 = resample(btc_h1, H4) if btc_h1 else []
+        h4_idx = 0
+        b_idx = 0
+        hold = self.max_hold_bars
+        self.max_hold_bars = max_hold_bars
+        equity = self.start_equity
+        day_start_equity = equity
+        current_day: int | None = None
+        pos_open_until = -1
+        trades_today = 0
+        last_fired: dict[tuple[str, str], int] = {}
+        try:
+            for i in range(warmup, len(h1)):
+                bar = h1[i]
+                bar_end = bar.ts + H1.seconds
+                day = bar.ts // 86400
+                if day != current_day:
+                    current_day = day
+                    day_start_equity = equity
+                    trades_today = 0
+                while h4_idx < len(h4_all) and h4_all[h4_idx].ts + H4.seconds <= bar_end:
+                    h4_idx += 1
+                while b_idx < len(btc_h4) and btc_h4[b_idx].ts + H4.seconds <= bar_end:
+                    b_idx += 1
+                w1 = h1[max(0, i + 1 - 400): i + 1]
+                w4 = h4_all[max(0, h4_idx - 220): h4_idx]
+                f1 = compute_features(w1)
+                f4 = compute_features(w4)
+                if f1 is None or f4 is None:
+                    continue
+                features = {H1: f1, H4: f4}
+                regime = detect_regime(f4, None)
+                ctx = MarketContext(symbol=symbol, now_ts=bar_end,
+                                    candles={H1: w1, H4: w4},
+                                    features=features, regime=regime)
+                if btc_h4 and b_idx > 50:
+                    fb = compute_features(btc_h4[max(0, b_idx - 220): b_idx])
+                    if fb is not None and fb.ema200 is not None:
+                        ctx.extras["btc_trend"] = 1 if fb.close >= fb.ema200 else -1
+                account = AccountState(
+                    equity=equity, day_start_equity=day_start_equity,
+                    open_positions=1 if i <= pos_open_until else 0,
+                    trades_today=trades_today)
+                decision = self.engine.evaluate(ctx, account)
+                future = h1[i + 1:]
+                for scored in decision.evaluated:
+                    sig = scored.signal
+                    key = (sig.strategy, sig.direction)
+                    if i - last_fired.get(key, -10**9) < self.cooldown:
+                        continue
+                    last_fired[key] = i
+                    outcome, held, pl_r = self.simulate_outcome(sig, future)
+                    res.signals.append(SignalRecord(
+                        signal=sig, bar_index=i, ts=bar.ts, regime=regime,
+                        score=scored.score, features=f1.as_dict(),
+                        outcome=outcome, bars_held=held, pl_r=pl_r,
+                        exit_ts=h1[min(i + held, len(h1) - 1)].ts))
+                if decision.verdict == "enter" and i > pos_open_until:
+                    best = decision.best.signal
+                    verdict = decision.risk
+                    outcome, held, pl_r = self.simulate_outcome(best, future)
+                    if outcome == "open":
+                        continue
+                    qty = verdict.quantity
+                    notional = best.entry * qty
+                    fees = notional * self.fee_pct / 100.0 * 2
+                    slip_cost = notional * self.slippage_pct / 100.0
+                    gross = pl_r * abs(best.entry - best.stop_loss) * qty
+                    pl = gross - fees - slip_cost
+                    equity += pl
+                    trades_today += 1
+                    pos_open_until = i + held
+                    rec = SignalRecord(
+                        signal=best, bar_index=i, ts=bar.ts, regime=regime,
+                        score=decision.best.score, features=f1.as_dict(),
+                        outcome=outcome, bars_held=held, pl_r=pl_r,
+                        exit_ts=h1[min(i + held, len(h1) - 1)].ts)
+                    res.trades.append(TradeRecord(
+                        signal=rec, quantity=qty, pl=pl, fees=fees, equity_after=equity))
+                    res.equity_curve.append(equity)
+        finally:
+            self.max_hold_bars = hold
+        return res
+
+
 def realistic_backtester(fee_venue: str = "binance", slippage_pct: float = 0.02,
                          allow_short: bool = False, **kw) -> Backtester:
     """Backtester with the SAME cost model and short rule as live/paper:
-    venue taker fee per side, slippage, net-of-cost reward/risk checks."""
+    venue taker fee per side, slippage, net-of-cost reward/risk checks.
+    On a futures venue the futures (4h) strategies are used, shorts are
+    allowed and the funding estimate is added to the round-trip cost."""
     from ..fees import round_trip_cost_pct, venue
     from ..risk import RiskLimits
-    limits = RiskLimits(round_trip_cost_pct=round_trip_cost_pct(fee_venue, "taker", slippage_pct),
-                        allow_short=allow_short, min_rr=1.3)
-    return Backtester(decision_engine=DecisionEngine(RiskSupervisor(limits)),
-                      fee_pct=venue(fee_venue).taker_pct, slippage_pct=slippage_pct, **kw)
+    v = venue(fee_venue)
+    cost = round_trip_cost_pct(fee_venue, "taker", slippage_pct)
+    strategies = None
+    if v.futures:
+        allow_short = True
+        cost += v.funding_pct_per_hour * 48     # ~2 days typical hold
+        from ..strategy.futures import FUTURES_STRATEGIES
+        strategies = list(FUTURES_STRATEGIES)
+    limits = RiskLimits(round_trip_cost_pct=cost, allow_short=allow_short, min_rr=1.3,
+                        leverage=1.0, max_leverage=v.max_leverage if v.futures else 1.0)
+    engine = DecisionEngine(RiskSupervisor(limits), strategies=strategies)
+    return Backtester(decision_engine=engine,
+                      fee_pct=v.taker_pct, slippage_pct=slippage_pct, **kw)

@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 
 DECISION_EVENT = "decision"
 
-NEED = {Timeframe.M5: 400, Timeframe.M15: 240, Timeframe.H1: 240}
+NEED = {Timeframe.M5: 400, Timeframe.M15: 240, Timeframe.H1: 240, Timeframe.H4: 200}
 
 
 class AnalysisService:
@@ -117,9 +117,21 @@ class AnalysisService:
         ctx = MarketContext(symbol=symbol, now_ts=now_ts, candles=candles,
                             features=features, regime=Regime.UNCERTAIN,
                             sentiment=sentiment, spread_pct=spread)
+        ctx.extras["btc_trend"] = self._btc_trend(symbol)
         result = self._engine.evaluate(ctx, account)
         self.last_regime[symbol] = result.regime
         return result
+
+    def _btc_trend(self, symbol: str) -> int | None:
+        """BTC 4h close vs EMA200: +1 above, -1 below (altcoin direction
+        filter). For BTC itself the strategies' own EMA200 check applies."""
+        if symbol.startswith("BTC/"):
+            return None
+        bars = self._db.get_candles("BTC/USD", Timeframe.H4, limit=210)
+        fs = compute_features(bars)
+        if fs is None or fs.ema200 is None:
+            return None
+        return 1 if fs.close >= fs.ema200 else -1
 
     def _persist(self, res: DecisionResult) -> None:
         if res.verdict == "no_signal":

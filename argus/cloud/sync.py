@@ -34,7 +34,9 @@ NOTIFY_EVENTS = {"trade", "bot_state", "system_alert", "ml"}
 class CloudSync:
     def __init__(self, db: Database, bus: EventBus, health: HealthMonitor,
                  executor, portfolio, news, base_url: str, token: str,
-                 push_seconds: float = 10.0, poll_seconds: float = 5.0) -> None:
+                 push_seconds: float = 10.0, poll_seconds: float = 5.0,
+                 market_provider=None) -> None:
+        self._market = market_provider     # () -> dict | None
         self._db = db
         self._bus = bus
         self._health = health
@@ -82,6 +84,11 @@ class CloudSync:
             "news": self._news.recent(15) if self._news else [],
             "sentiment": self._news.tracker.snapshot() if self._news else {},
         }
+        if self._market is not None:
+            try:
+                snap["market"] = self._market()
+            except Exception:
+                pass
         return snap
 
     async def _push_loop(self) -> None:

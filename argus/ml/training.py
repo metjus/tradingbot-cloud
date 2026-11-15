@@ -124,13 +124,27 @@ async def train_from_history(db: Database, registry: ModelRegistry,
     """Full pipeline: history -> backtest signals (+ lived trade records) ->
     dataset -> walk-forward -> register candidate (status = validation)."""
     from ..backtest.engine import realistic_backtester
+    from ..fees import venue as venue_info
     bt = realistic_backtester(fee_venue, slippage_pct, allow_short)
+    futures = venue_info(fee_venue).futures
     all_records = list(extra_records or [])
     per_symbol = {}
     profiles: dict = {}
+    btc_h1 = None
+    if futures:
+        from ..backtest.history import ensure_history_futures
+        try:
+            btc_h1 = await ensure_history_futures(db, "BTC/USD", days)
+        except Exception as exc:
+            log.warning("BTC history for the trend filter failed: %s", exc)
     for sym in symbols:
-        bars = await ensure_history(db, sym, days)
-        result = bt.run(sym, bars)
+        if futures:
+            from ..backtest.history import ensure_history_futures
+            bars = await ensure_history_futures(db, sym, days)
+            result = bt.run_htf(sym, bars, btc_h1=btc_h1)
+        else:
+            bars = await ensure_history(db, sym, days)
+            result = bt.run(sym, bars)
         all_records.extend(result.signals)
         per_symbol[sym] = {"bars": result.bars, **signal_outcome_stats(result)}
         profiles[sym] = calibration_profile(

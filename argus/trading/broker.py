@@ -37,6 +37,7 @@ class BracketOrder:
     stop_loss: float
     take_profit: float
     strategy: str = ""
+    leverage: float = 1.0     # futures: notional / margin
 
 
 @dataclass(slots=True)
@@ -62,6 +63,10 @@ class BrokerPosition:
     take_profit: float
     opened_ts: float
     strategy: str = ""
+    leverage: float = 1.0
+    liq_price: float | None = None    # isolated-margin liquidation estimate
+    funding_accrued: float = 0.0      # futures funding paid (+) / received (-)
+    last_funding_ts: float = 0.0
 
 
 class BrokerAdapter(ABC):
@@ -103,13 +108,42 @@ class PaperBroker(BrokerAdapter):
     server_side_brackets = False  # emulated locally; live adapters set True
 
     def __init__(self, fee_pct: float = 0.1, slippage_pct: float = 0.02,
-                 clock: Callable[[], float] = time.time) -> None:
+                 clock: Callable[[], float] = time.time,
+                 maintenance_margin_pct: float = 0.0) -> None:
         super().__init__()
         self.fee_pct = fee_pct
         self.slippage_pct = slippage_pct
+        self.maintenance_margin_pct = maintenance_margin_pct
+        #: symbol -> funding rate per hour (fraction, long pays when > 0);
+        #: set by the engine from the futures ticker. None = no funding.
+        self.funding_provider: Callable[[str], float | None] | None = None
         self._clock = clock
         self._positions: dict[str, BrokerPosition] = {}
         self._last_price: dict[str, float] = {}
+
+    def _liq_price(self, direction: str, entry: float, leverage: float) -> float | None:
+        if leverage <= 1.0 and self.maintenance_margin_pct <= 0:
+            return None
+        move = 1.0 / max(1.0, leverage) - self.maintenance_margin_pct / 100.0
+        if move <= 0:
+            return entry
+        sgn = 1.0 if direction == "LONG" else -1.0
+        return entry * (1.0 - sgn * move)
+
+    def _accrue_funding(self, pos: BrokerPosition, ts: float) -> None:
+        if self.funding_provider is None:
+            return
+        if pos.last_funding_ts <= 0:
+            pos.last_funding_ts = ts
+            return
+        dt = ts - pos.last_funding_ts
+        if dt < 300:                   # accrue in >= 5 min chunks
+            return
+        rate_h = self.funding_provider(pos.symbol)
+        if rate_h:
+            sgn = 1.0 if pos.direction == "LONG" else -1.0
+            pos.funding_accrued += sgn * rate_h * (dt / 3600.0) *                 pos.entry_price * pos.quantity
+        pos.last_funding_ts = ts
 
     # --- market data in --------------------------------------------------
     def on_candle(self, bar: Candle) -> None:
@@ -121,9 +155,13 @@ class PaperBroker(BrokerAdapter):
                 continue
             if pos.direction == "LONG":
                 hit_sl, hit_tp = bar.low <= pos.stop_loss, bar.high >= pos.take_profit
+                hit_liq = pos.liq_price is not None and bar.low <= pos.liq_price
             else:
                 hit_sl, hit_tp = bar.high >= pos.stop_loss, bar.low <= pos.take_profit
-            if hit_sl:
+                hit_liq = pos.liq_price is not None and bar.high >= pos.liq_price
+            if hit_liq and not hit_sl:
+                self._fill_exit(pos, pos.liq_price, "liquidation", bar.ts)
+            elif hit_sl:
                 # gap through the stop at the open -> filled at the open
                 gapped = (bar.open <= pos.stop_loss) if pos.direction == "LONG" \
                     else (bar.open >= pos.stop_loss)
@@ -139,11 +177,16 @@ class PaperBroker(BrokerAdapter):
         for pos in list(self._positions.values()):
             if pos.symbol != symbol:
                 continue
+            self._accrue_funding(pos, ts or self._clock())
             if pos.direction == "LONG":
                 hit_sl, hit_tp = price <= pos.stop_loss, price >= pos.take_profit
+                hit_liq = pos.liq_price is not None and price <= pos.liq_price
             else:
                 hit_sl, hit_tp = price >= pos.stop_loss, price <= pos.take_profit
-            if hit_sl:
+                hit_liq = pos.liq_price is not None and price >= pos.liq_price
+            if hit_liq and not hit_sl:
+                self._fill_exit(pos, price, "liquidation", ts or self._clock())
+            elif hit_sl:
                 # a stop becomes a market order: it fills at the market price,
                 # which after a jump is WORSE than the stop level
                 self._fill_exit(pos, price, "stop_loss", ts or self._clock())
@@ -167,7 +210,10 @@ class PaperBroker(BrokerAdapter):
         now = self._clock()
         pos = BrokerPosition(order.client_order_id, order.symbol, order.direction,
                              order.quantity, px, order.stop_loss, order.take_profit,
-                             opened_ts=now, strategy=order.strategy)
+                             opened_ts=now, strategy=order.strategy,
+                             leverage=order.leverage,
+                             liq_price=self._liq_price(order.direction, px, order.leverage),
+                             last_funding_ts=now)
         self._positions[order.client_order_id] = pos
         if self.on_fill:
             self.on_fill(Fill(order.client_order_id, order.symbol, order.direction,
@@ -195,13 +241,14 @@ class PaperBroker(BrokerAdapter):
 
     def restore(self, client_order_id: str, symbol: str, direction: str, quantity: float,
                 entry_price: float, stop_loss: float, take_profit: float,
-                opened_ts: float, strategy: str = "") -> None:
+                opened_ts: float, strategy: str = "", leverage: float = 1.0) -> None:
         """Re-create a simulated position after an app restart (the paper
         book lives in memory; the portfolio DB is the source of truth)."""
         if client_order_id not in self._positions:
             self._positions[client_order_id] = BrokerPosition(
                 client_order_id, symbol, direction, quantity, entry_price,
-                stop_loss, take_profit, opened_ts, strategy)
+                stop_loss, take_profit, opened_ts, strategy, leverage=leverage,
+                liq_price=self._liq_price(direction, entry_price, leverage))
 
     def update_stop(self, client_order_id: str, new_stop: float) -> bool:
         pos = self._positions.get(client_order_id)
@@ -219,7 +266,8 @@ class PaperBroker(BrokerAdapter):
     # --- internals ----------------------------------------------------------
     def _fill_exit(self, pos: BrokerPosition, price: float, kind: str, ts: float) -> None:
         self._positions.pop(pos.client_order_id, None)
-        fee = price * pos.quantity * self.fee_pct / 100.0
+        # accrued funding is settled with the exit, as part of the exit fee
+        fee = price * pos.quantity * self.fee_pct / 100.0 + pos.funding_accrued
         exit_dir = "SELL" if pos.direction == "LONG" else "BUY"
         if self.on_fill:
             self.on_fill(Fill(pos.client_order_id, pos.symbol, exit_dir,

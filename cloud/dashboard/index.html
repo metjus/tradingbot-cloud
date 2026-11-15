@@ -75,6 +75,8 @@ input[type=text],input[type=url],input[type=password]{width:100%;background:var(
 .banner.warn{background:rgba(240,177,63,.08);border:1px solid rgba(240,177,63,.35)}
 svg.spark{width:100%;height:70px;display:block}
 .btn-icon{display:flex;align-items:center;justify-content:center;gap:10px}
+@keyframes ptr-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+html,body{overscroll-behavior-y:contain}
 </style>
 </head>
 <body>
@@ -83,6 +85,7 @@ svg.spark{width:100%;height:70px;display:block}
   <span class="wordmark">ARGUS</span>
   <span class="spacer"></span>
   <span id="pill-conn" class="pill"><span class="dot"></span><span id="conn-text">…</span></span>
+  <span id="pill-mode" class="pill warn hidden">PAPER</span>
   <span id="pill-state" class="pill hidden"></span>
 </header>
 
@@ -123,6 +126,7 @@ svg.spark{width:100%;height:70px;display:block}
         <div class="kv"><span class="k">Denný P/L</span><span class="v mono" id="day-pl">—</span></div>
         <div class="kv"><span class="k">Celkový P/L</span><span class="v mono" id="total-pl">—</span></div>
         <div class="kv"><span class="k">Vložené</span><span class="v mono" id="invested">—</span></div>
+        <div class="kv"><span class="k">Win rate</span><span class="v mono" id="winrate">—</span></div>
       </div>
       <svg class="spark" id="spark" viewBox="0 0 300 70" preserveAspectRatio="none" aria-hidden="true"></svg>
     </div>
@@ -132,6 +136,10 @@ svg.spark{width:100%;height:70px;display:block}
         <span class="small" id="pos-count"></span>
       </div>
       <div id="positions"><span class="small">Žiadne otvorené pozície.</span></div>
+    </div>
+    <div class="card">
+      <div class="label" style="margin-bottom:6px">Trh · 24h objem</div>
+      <div id="market" class="small">—</div>
     </div>
     <div class="card">
       <div class="label" style="margin-bottom:6px">Posledné udalosti</div>
@@ -184,6 +192,13 @@ svg.spark{width:100%;height:70px;display:block}
     </div>
   </section>
 </main>
+
+<div id="ptr" aria-hidden="true" style="position:fixed;left:0;right:0;top:-54px;display:flex;justify-content:center;z-index:40;transition:transform .15s">
+  <div style="display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 16px;font-size:12px;font-weight:600;color:var(--text2)">
+    <svg id="ptr-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12 A8 8 0 1 1 17.7 6.3 M17.7 2.5 L17.7 6.3 L14 6.3"/></svg>
+    <span id="ptr-text">Potiahni pre aktualizáciu</span>
+  </div>
+</div>
 
 <div id="scanner" class="hidden" style="position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column">
   <video id="scan-video" playsinline muted style="flex:1;width:100%;object-fit:cover"></video>
@@ -404,7 +419,11 @@ function spark(trades, equityNow, totalPl){
   const xy = pts.map((v, i) => `${(i / (pts.length - 1) * 300).toFixed(1)},${(64 - (v - lo) / span * 58).toFixed(1)}`);
   const up = pts.at(-1) >= pts[0];
   const col = up ? "#35D49B" : "#F6567A";
-  $("spark").innerHTML = `<polyline points="${xy.join(" ")}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+  $("spark").innerHTML = `<defs><linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${col}" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    <polygon points="0,70 ${xy.join(" ")} 300,70" fill="url(#eqFill)"/>
+    <polyline points="${xy.join(" ")}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
 }
 
 function render(data){
@@ -423,6 +442,7 @@ function render(data){
     ob.innerHTML = `<b>Počítač s ARGUS je offline</b> (posledné dáta pred ${ago}). Údaje nižšie sú
       posledný známy stav. Ochranné stop-lossy otvorených pozícií ostávajú u brokera.`;
   } else ob.classList.add("hidden");
+  $("pill-mode").classList.remove("hidden");
   const ps = $("pill-state");
   ps.classList.remove("hidden");
   ps.className = "pill " + (st.bot_state === "running" ? "ok" : (st.bot_state === "stopped" ? "bad" : "warn"));
@@ -432,6 +452,7 @@ function render(data){
   $("day-pl").textContent = fmtEur(p.day_pl); $("day-pl").className = "v mono " + cls(p.day_pl);
   $("total-pl").textContent = fmtEur(p.total_pl); $("total-pl").className = "v mono " + cls(p.total_pl);
   $("invested").textContent = p.invested_total != null ? p.invested_total.toFixed(2) + " €" : "—";
+  $("winrate").textContent = p.win_rate != null ? p.win_rate.toFixed(1) + "%" : "—";
   spark(st.trades, p.equity, p.total_pl);
 
   const pos = p.open_positions || [];
@@ -447,7 +468,9 @@ function render(data){
         <span class="spacer"></span>
         <span class="mono ${cls(o.unrealized_pl)}" style="font-weight:600">${fmtEur(o.unrealized_pl)}</span>
       </div>
-      <div class="small">Vložené <b class="mono">${o.invested != null ? o.invested.toFixed(2) + " €" : "—"}</b>
+      <div class="small">Vložené <b class="mono">${o.invested != null ? o.invested.toFixed(2) + " €" : "—"}</b>${
+        o.leverage && o.leverage > 1 ? ` · páka <b class="mono">${o.leverage}×</b>` : ""}${
+        o.liq_price != null ? ` · likvid. <span class="mono">${Number(o.liq_price).toPrecision(5)}</span>` : ""}
         · ${esc(o.strategy || "")}</div>
       <div class="range"><div class="fill"></div>
         <div class="mark" style="left:${pct(o.last_price ?? o.entry)}%"></div></div>
@@ -471,6 +494,19 @@ function render(data){
      <span class="mono ${cls(t.pl)}" style="font-size:13px">${fmtEur(t.pl)}</span></div>`
   ).join("") || '<span class="small">Zatiaľ žiadne obchody.</span>';
 
+  const mk = st.market || {};
+  const coins = mk.coins || {};
+  const fu = (v) => v >= 1e9 ? (v / 1e9).toFixed(2) + " mld. $" : v >= 1e6 ? (v / 1e6).toFixed(1) + " mil. $" : Math.round(v / 1e3) + " tis. $";
+  $("market").innerHTML = Object.keys(coins).length ? Object.entries(coins).map(([sym, m]) => {
+    const f = m.f != null ? m.f * 100 : null;
+    return `<div class="toggle-row" style="gap:8px">
+      <b style="min-width:62px">${esc(sym.split("/")[0])}</b>
+      <span class="mono">${m.last != null ? Number(m.last).toPrecision(6) : "—"}</span>
+      <span class="spacer"></span>
+      <span class="mono">${fu(m.vq || 0)}</span>
+      ${mk.futures && f != null ? `<span class="mono ${f > 0 ? "loss" : "profit"}" style="font-size:11px">${f >= 0 ? "+" : ""}${f.toFixed(4)}%</span>` : ""}
+    </div>`;
+  }).join("") : "—";
   const sent = st.sentiment || {};
   $("sentiment").innerHTML = Object.keys(sent).length ? Object.entries(sent).map(([k, v]) =>
     `<div class="toggle-row"><span>${esc(k)}</span>
@@ -485,12 +521,13 @@ function render(data){
 }
 
 async function tick(){
-  if (!token()) return;
-  try { render(await api("/api/state")); }
+  if (!token()) return false;
+  try { render(await api("/api/state", {cache: "no-store"})); return true; }
   catch(e){
     $("pill-conn").className = "pill bad";
     $("conn-text").textContent = e.message.includes("401") ? "ZLÝ KÓD" : "BEZ SIETE";
     if (e.message.includes("401")) { localStorage.removeItem("argus_token"); show("setup"); }
+    return false;
   }
 }
 
@@ -561,6 +598,46 @@ function idbSet(val){
   req.onupgradeneeded = () => req.result.createObjectStore("kv");
   req.onsuccess = () => req.result.transaction("kv", "readwrite").objectStore("kv").put(val, "cfg");
 }
+
+// --- pull-to-refresh (swipe down at the top of the page) ---
+(() => {
+  const ptr = $("ptr"), txt = $("ptr-text"), ico = $("ptr-ico");
+  let startY = null, pull = 0, busy = false;
+  const THRESHOLD = 70;
+  const setPull = (d) => { ptr.style.transform = `translateY(${Math.min(d, 110)}px)`; };
+  document.addEventListener("touchstart", (e) => {
+    if (busy || window.scrollY > 2 || !token()) return;
+    if (!$("scanner").classList.contains("hidden")) return;
+    startY = e.touches[0].clientY; pull = 0;
+  }, {passive: true});
+  document.addEventListener("touchmove", (e) => {
+    if (startY == null || busy) return;
+    pull = e.touches[0].clientY - startY;
+    if (pull > 8 && window.scrollY <= 2){
+      txt.textContent = pull > THRESHOLD ? "Pusti pre aktualizáciu" : "Potiahni pre aktualizáciu";
+      ico.style.transform = `rotate(${Math.min(pull * 2.4, 180)}deg)`;
+      setPull(pull * 0.55);
+    }
+  }, {passive: true});
+  document.addEventListener("touchend", async () => {
+    if (startY == null || busy) return;
+    const fired = pull > THRESHOLD && window.scrollY <= 2;
+    startY = null;
+    if (!fired){ setPull(0); return; }
+    busy = true;
+    txt.textContent = "Aktualizujem…";
+    ico.style.animation = "ptr-spin 0.8s linear infinite";
+    setPull(64);
+    const t0 = Date.now();
+    let ok = false;
+    try { ok = await tick(); } catch(e){}
+    await new Promise(r => setTimeout(r, Math.max(0, 500 - (Date.now() - t0))));
+    ico.style.animation = ""; ico.style.transform = "";
+    txt.innerHTML = ok ? '<span class="profit">Aktualizované</span>'
+                       : '<span class="loss">Bez spojenia</span>';
+    setTimeout(() => { setPull(0); busy = false; }, 900);
+  }, {passive: true});
+})();
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
 renderCats();

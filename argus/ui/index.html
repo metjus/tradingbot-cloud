@@ -74,6 +74,8 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
 .ico{display:inline-block;vertical-align:-2px}
 .sdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor;margin-right:7px;vertical-align:1px}
 .sdot.profit{color:var(--profit,#35D49B)}.sdot.warn{color:var(--warn,#F0B13F)}.sdot.loss{color:var(--loss,#F6567A)}
+.banner-danger{margin-top:8px;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.5;
+  color:var(--loss);background:rgba(246,86,122,.08);border:1px solid rgba(246,86,122,.45);font-weight:600}
 </style>
 </head>
 <body>
@@ -97,15 +99,21 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
 
 <div class="layout">
 <nav>
-  <a href="#dash" data-v="dash" class="active">Dashboard</a>
-  <a href="#history" data-v="history">Trade History</a>
-  <a href="#ai" data-v="ai">AI Analysis</a>
-  <a href="#news" data-v="news">News Intelligence</a>
-  <a href="#learning" data-v="learning">AI Learning</a>
-  <a href="#strategies" data-v="strategies">Strategy Manager</a>
-  <a href="#risk" data-v="risk">Risk Management</a>
-  <a href="#settings" data-v="settings">Settings</a>
-  <a href="#system" data-v="system">System</a>
+  <a href="#dash" data-v="dash" class="active"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18 L4 10 M9 18 L9 5 M14 18 L14 12 M19 18 L19 8"/></svg>Dashboard</a>
+  <a href="#history" data-v="history"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7 L12 12 L15.5 14"/></svg>Trade History</a>
+  <a href="#ai" data-v="ai"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2 L12 6 M12 18 L12 22 M2 12 L6 12 M18 12 L22 12"/></svg>AI Analysis</a>
+  <a href="#news" data-v="news"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5 L16 5 L16 19 L4 19 Z"/><path d="M16 9 L20 9 L20 19 L16 19"/><path d="M7 9 L13 9 M7 12.5 L13 12.5"/></svg>News Intelligence</a>
+  <a href="#learning" data-v="learning"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 L13.8 8.6 L18.5 9 L15 12.2 L16.1 16.9 L12 14.4 L7.9 16.9 L9 12.2 L5.5 9 L10.2 8.6 Z"/></svg>AI Learning</a>
+  <a href="#strategies" data-v="strategies"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5 L19 5 M5 12 L19 12 M5 19 L19 19"/><circle cx="9" cy="5" r="2" fill="#0D1119"/><circle cx="15" cy="12" r="2" fill="#0D1119"/><circle cx="8" cy="19" r="2" fill="#0D1119"/></svg>Strategy Manager</a>
+  <a href="#risk" data-v="risk"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L20 7 L20 12 C20 16.5 16.6 20 12 21 C7.4 20 4 16.5 4 12 L4 7 Z"/></svg>Risk Management</a>
+  <a href="#settings" data-v="settings"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3 L12 5.5 M12 18.5 L12 21 M3 12 L5.5 12 M18.5 12 L21 12 M5.6 5.6 L7.4 7.4 M16.6 16.6 L18.4 18.4 M5.6 18.4 L7.4 16.6 M16.6 7.4 L18.4 5.6"/></svg>Settings</a>
+  <a href="#system" data-v="system" id="nav-system"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6 L20 6 L20 16 L4 16 Z"/><path d="M9 20 L15 20 M12 16 L12 20"/></svg>System</a>
+  <div id="nav-sys-card" style="margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+    <span class="label" style="font-size:10px">System</span>
+    <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--text2)">Dáta</span><span id="sys-data" class="small">…</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--text2)">Cloud sync</span><span id="sys-cloud" class="small">—</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--text2)">AI dnes</span><span id="sys-llm" class="small">—</span></div>
+  </div>
 </nav>
 
 <main>
@@ -129,6 +137,7 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
             <div id="ind-toggles" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px"></div>
             <div id="chart"></div>
             <div id="chart-sub" style="height:120px;display:none"></div>
+            <div id="mkt-info" class="small mono" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px"></div>
             <div id="ind-values" class="small mono" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px"></div>
             <div class="small" id="chart-err"></div>
           </div>
@@ -138,6 +147,10 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
           </div>
         </div>
         <div class="col-side">
+          <div class="card">
+            <div class="label" style="margin-bottom:8px">Trh · 24h objem</div>
+            <div id="dash-market" class="small">—</div>
+          </div>
           <div class="card">
             <div class="label" style="margin-bottom:8px">AI Decision Engine</div>
             <div id="dash-decisions" class="small">Zatiaľ žiadne vyhodnotenia.</div>
@@ -452,6 +465,7 @@ async function loadChart(fit = false){
     liveBar = bars.length ? {...bars.at(-1)} : null;
     const last = d.forming || d.candles.at(-1);
     $("chart-sym").textContent = sym + " · " + tf;
+    renderMarketStrip();
     $("chart-price").textContent = last ? last.close : "";
 
     // price-pane overlays
@@ -536,6 +550,57 @@ function onTick(tk){
   el.dataset.p = tk.price;
 }
 
+// --- market info (24h volume in USD + coin, funding) ---
+function fmtUsd(v){
+  if (v == null) return "—";
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + "\u00a0mld.\u00a0$";
+  if (v >= 1e6) return (v / 1e6).toFixed(1) + "\u00a0mil.\u00a0$";
+  if (v >= 1e3) return Math.round(v / 1e3) + "\u00a0tis.\u00a0$";
+  return Math.round(v) + "\u00a0$";
+}
+const fmtQty = (v) => v == null ? "—" :
+  v >= 1e9 ? (v / 1e9).toFixed(2) + " mld." :
+  v >= 1e6 ? (v / 1e6).toFixed(2) + " mil." :
+  v >= 1e3 ? (v / 1e3).toFixed(1) + " tis." : String(Math.round(v * 100) / 100);
+let marketData = null;
+async function refreshMarket(){
+  try { marketData = await api("/api/market"); } catch(e){ return; }
+  renderMarketStrip();
+  renderMarketTable();
+}
+function renderMarketTable(){
+  const el = $("dash-market");
+  if (!el || !marketData) return;
+  const rows = (marketData.symbols || []).map(sym => {
+    const m = (marketData.info || {})[sym];
+    if (!m) return "";
+    const f = m.funding_rate_h != null ? m.funding_rate_h * 100 : null;
+    return `<div class="list-item" style="cursor:pointer;flex-wrap:nowrap;white-space:nowrap;gap:8px" onclick="$('sel-symbol').value='${esc(sym)}';loadChart(true)">
+      <b style="min-width:52px">${esc(sym.split("/")[0])}</b>
+      <span class="mono" style="min-width:72px">${m.last != null ? Number(m.last).toPrecision(6) : "—"}</span>
+      <span class="spacer"></span>
+      <span class="mono" title="${fmtQty(m.vol24h)} ${esc(sym.split("/")[0])}">${fmtUsd(m.volume_quote)}</span>
+      ${marketData.futures && f != null ? `<span class="mono small ${f > 0 ? "loss" : "profit"}" style="min-width:58px;text-align:right" title="funding za hodinu">${f >= 0 ? "+" : ""}${f.toFixed(4)}%</span>` : ""}
+    </div>`;
+  }).join("");
+  el.innerHTML = rows || "—";
+}
+function renderMarketStrip(){
+  const el = $("mkt-info");
+  if (!el || !marketData) return;
+  const sym = $("sel-symbol").value;
+  const m = (marketData.info || {})[sym];
+  if (!m){ el.innerHTML = ""; return; }
+  const base = sym.split("/")[0];
+  const f = m.funding_rate_h != null ? (m.funding_rate_h * 100) : null;
+  el.innerHTML = [
+    `<span>Objem 24h <b>${fmtUsd(m.volume_quote)}</b> <span style="color:var(--muted)">(${fmtQty(m.vol24h)} ${esc(base)})</span></span>`,
+    marketData.futures && f != null ? `<span>Funding <b class="${f > 0 ? "loss" : "profit"}">${f >= 0 ? "+" : ""}${f.toFixed(4)} %/h</b> <span style="color:var(--muted)">${f >= 0 ? "longy platia" : "shorty platia"}</span></span>` : "",
+    marketData.futures && m.open_interest ? `<span>Open interest <b>${fmtQty(m.open_interest)} ${esc(base)}</b></span>` : "",
+    m.mark ? `<span>Mark <b>${m.mark.toPrecision(6)}</b></span>` : "",
+  ].filter(Boolean).join("");
+}
+
 // --- helpers ---
 const ICONS = {
   check: '<path d="M4 12.5l5 5L20 6.5"/>',
@@ -602,25 +667,35 @@ async function refresh(){
       ["Kapitál", portfolio.equity != null ? portfolio.equity.toFixed(2) + " €" : "—", ""],
       ["Denný P/L", fmtEur(portfolio.day_pl), cls(portfolio.day_pl)],
       ["Celkový P/L", fmtEur(portfolio.total_pl), cls(portfolio.total_pl)],
+      ["Win rate", portfolio.win_rate != null ? portfolio.win_rate.toFixed(1) + "%" : "—", ""],
+      ["Profit factor", portfolio.profit_factor != null ? portfolio.profit_factor.toFixed(2) : "—",
+       portfolio.profit_factor != null ? (portfolio.profit_factor >= 1 ? "profit" : "loss") : ""],
+      ["Max drawdown", portfolio.max_drawdown_pct != null ? "−" + portfolio.max_drawdown_pct.toFixed(1) + "%" : "—", portfolio.max_drawdown_pct > 5 ? "warn" : ""],
       ["Vložené v pozíciách", (portfolio.invested_total ?? 0).toFixed(2) + " €", ""],
-      ["Obchody dnes", portfolio.trades_today ?? "—", ""],
       ["Otvorené pozície", (portfolio.open_positions||[]).length, ""],
     ].map(([k,v,c]) => `<div class="stat"><span class="label">${k}</span>
       <span class="v ${c}">${v}</span></div>`).join("");
 
     const pos = portfolio.open_positions || [];
-    $("tbl-pos").innerHTML = "<tr><th>Inštrument</th><th>Smer</th><th>Vložené</th><th>Množstvo</th><th>Vstup</th><th>Aktuálne</th><th>SL</th><th>TP</th><th>Stratégia</th><th style='text-align:right'>P/L</th><th></th></tr>" +
+    $("tbl-pos").innerHTML = "<tr><th>Inštrument</th><th>Smer</th><th>Vložené</th><th>Páka</th><th>Množstvo</th><th>Vstup</th><th>Aktuálne</th><th>SL</th><th>TP</th><th>Likvid.</th><th>Stratégia</th><th style='text-align:right'>P/L</th><th></th></tr>" +
       (pos.length ? pos.map(o => `<tr class="mono">
         <td style="font-family:Inter;font-weight:600">${esc(o.symbol)}</td>
         <td><span class="tag ${o.direction==="LONG"?"long":"short"}">${o.direction}</span></td>
-        <td>${o.invested != null ? o.invested.toFixed(2) + " €" : "—"}</td>
+        <td title="${o.notional != null ? "hodnota pozície " + o.notional.toFixed(2) + " €" : ""}">${o.invested != null ? o.invested.toFixed(2) + " €" : "—"}</td>
+        <td>${o.leverage && o.leverage > 1 ? o.leverage + "×" : "—"}</td>
         <td>${Number(o.quantity).toPrecision(5)}</td><td>${o.entry}</td><td>${o.last_price ?? "—"}</td>
         <td class="loss">${Number(o.stop_loss).toPrecision(6)}</td><td class="profit">${Number(o.take_profit).toPrecision(6)}</td>
+        <td class="small">${o.liq_price != null ? Number(o.liq_price).toPrecision(5) : "—"}</td>
         <td style="font-family:Inter;color:var(--text2)">${esc(o.strategy)}</td>
         <td style="text-align:right" class="${cls(o.unrealized_pl)}">${fmtEur(o.unrealized_pl)}</td>
         <td style="text-align:right"><button class="btn-danger btn-sm" onclick="closePos('${esc(o.client_order_id)}','${esc(o.symbol)}')">Zatvoriť</button></td></tr>`).join("")
-      : `<tr><td colspan="11" class="small">Žiadne otvorené pozície.</td></tr>`);
+      : `<tr><td colspan="13" class="small">Žiadne otvorené pozície.</td></tr>`);
 
+    const comp = (n) => (health.components||[]).find(c => c.name === n);
+    const md = comp("kraken_futures") || comp("kf_ticker") || comp("kraken") || comp("kraken_ticker");
+    $("sys-data").innerHTML = md ? (md.status === "ok" ? '<span class="profit">live</span>' : `<span class="warn">${esc(md.status)}</span>`) : "—";
+    const cs = comp("cloud_sync");
+    $("sys-cloud").innerHTML = cs ? (cs.status === "ok" ? '<span class="profit">OK</span>' : `<span class="warn">${esc(cs.status)}</span>`) : "vypnuté";
     $("health").innerHTML = (health.components||[]).map(c =>
       `<div class="list-item"><span>${esc(c.name)}</span><span class="spacer"></span>
        <span class="${c.status==="ok"?"profit":(c.status==="degraded"?"warn":"loss")}">${c.status}</span>
@@ -764,7 +839,8 @@ async function refreshSlow(){
         ["Denný limit straty", "−" + L.daily_max_loss_pct + "%"],
         ["Min. zisk/riziko po poplatkoch", L.min_rr],
         ["Poplatky + sklz za celý obchod", L.round_trip_cost_pct + "%"],
-        ["Short", L.allow_short ? "povolený" : "nie (spotový trh)"],
+        ["Short", L.allow_short ? "povolený (futures)" : "nie"],
+        ["Páka", (L.leverage && L.leverage > 1) ? L.leverage + "× (max " + L.max_leverage + "×)" : "bez páky"],
         ["Max. spread", L.max_spread_pct + "%"],
         ["Povinný stop loss", "áno (bez SL žiadny obchod)"],
         ["Martingale / navyšovanie po strate", "zakázané"],
@@ -828,9 +904,10 @@ const FIELDS = {
     ["enter_threshold", "Min. skóre na vstup (0-100)", "Vyššie = menej, ale kvalitnejších obchodov."],
   ],
   "form-venue": [
-    ["fee_venue", "Burza (poplatky)", "Podľa toho sa počítajú poplatky v paper aj live režime."],
+    ["fee_venue", "Burza (poplatky a dáta)", "Kraken Futures = long aj short s pákou. Zmena platí po reštarte aplikácie."],
     ["slippage_pct", "Sklz na stranu (%)", "Rozdiel medzi očakávanou a skutočnou cenou."],
-    ["allow_short", "Povoliť SHORT", "Iba pre maržové/futures účty. Spotový trh shortovať nedovolí."],
+    ["allow_short", "Povoliť SHORT", "Na futures zarába aj na poklese ceny. Spotový trh shortovať nedovolí."],
+    ["leverage", "Páka (×)", "Páka NEMENÍ riziko obchodu (to určuje stop-loss a riziko na obchod) - znižuje iba sumu zablokovanú v pozícii. Odporúčané 3×, maximum pre EÚ retail 10×."],
   ],
   "form-exits": [
     ["adaptive_exits", "Adaptívne riadenie pozícií", "Postupné sťahovanie stop-lossu, ochrana zisku, reakcia na zvrat."],
@@ -838,12 +915,15 @@ const FIELDS = {
     ["break_even_at_r", "Break-even pri (R)", "Stop sa posunie na vstup + poplatky - obchod už nemôže skončiť stratou."],
     ["trail_start_r", "Trailing od (R)", ""],
     ["trail_distance_r", "Trailing vzdialenosť (R)", ""],
-    ["giveback_pct", "Ochrana zisku: max. vrátenie (%)", "Keď zisk dosiahol aspoň 1R a klesne o toto %, pozícia sa zavrie."],
+    ["giveback_pct", "Ochrana zisku: max. vrátenie (%)", "Keď zisk klesne o toto % zo svojho maxima, pozícia sa zavrie."],
+    ["giveback_min_r", "Ochrana zisku od (R)", "Ochrana sa zapne, až keď zisk dosiahol aspoň toľkoto R."],
     ["sentiment_exit", "Reagovať na zvrat sentimentu", ""],
     ["regime_exit", "Reagovať na zvrat trhového režimu", ""],
   ],
   "form-symbols": [
-    ["symbols", "Mince (oddelené čiarkou)", "Kraken páry, napr. BTC/USD, ETH/USD, SOL/USD, XRP/USD. Zmena platí po reštarte aplikácie."],
+    ["auto_symbols", "Vyberať mince automaticky podľa likvidity", "Najobchodovanejšie perpetual kontrakty podľa 24h objemu v USD; meme mince a tokenizované akcie sa vynechávajú."],
+    ["max_symbols", "Max. počet mincí", ""],
+    ["symbols", "Vlastné mince (oddelené čiarkou)", "Použijú sa, keď je automatický výber vypnutý. Napr. BTC/USD, ETH/USD, SOL/USD. Zmena platí po reštarte aplikácie."],
   ],
   "form-llm": [
     ["llm_provider", "Aktívny poskytovateľ", "Vždy je aktívny najviac jeden. „none“ = bez AI, iba lokálny lexikón."],
@@ -877,12 +957,30 @@ async function loadSettings(){
   for (const [form, fields] of Object.entries(FIELDS))
     $(form).innerHTML = fields.map(([k, label, hint]) =>
       fieldHtml(k, label, hint, s.values[k], (s.choices||{})[k])).join("");
-  $("tbl-venues").innerHTML = "<tr><th>Burza</th><th>Maker</th><th>Taker</th><th>Celý obchod*</th><th></th></tr>" +
+  const lev = document.querySelector('[data-k="leverage"]');
+  if (lev){ lev.addEventListener("input", leverageWarning); leverageWarning(); }
+  $("tbl-venues").innerHTML = "<tr><th>Burza</th><th>Maker</th><th>Taker</th><th>Celý obchod*</th><th>Short/páka</th><th></th></tr>" +
     (s.venues||[]).map(v => `<tr><td>${esc(v.name)}</td><td class="mono">${v.maker_pct}%</td>
       <td class="mono">${v.taker_pct}%</td><td class="mono">${v.round_trip_pct}%</td>
+      <td class="mono">${v.futures ? "áno, do " + v.max_leverage + "×" : "—"}</td>
       <td class="small">${esc(v.note)}</td></tr>`).join("") +
     `<tr><td colspan="5" class="small">* nákup + predaj trhovým príkazom + sklz 0,02 % na stranu</td></tr>`;
   await renderLlmKeys();
+}
+function leverageWarning(){
+  const el = document.querySelector('[data-k="leverage"]');
+  if (!el) return;
+  const box = $("lev-warn") || (() => {
+    const d = document.createElement("div"); d.id = "lev-warn";
+    el.closest(".field").appendChild(d); return d;
+  })();
+  const v = parseFloat(el.value) || 1;
+  if (v > 5) box.innerHTML = `<div class="banner-danger">POZOR: páka ${v}× je vysoké riziko.
+    Likvidačná cena je blízko vstupu a pri prudkom skoku ceny môžeš prísť o celý vklad pozície
+    skôr, ako stihne zareagovať stop-loss. Odporúčame max. 3×.</div>`;
+  else if (v > 3) box.innerHTML = `<div class="hint" style="color:var(--warn)">Páka nad 3× zvyšuje
+    citlivosť na prudké skoky ceny.</div>`;
+  else box.innerHTML = "";
 }
 async function saveSettings(){
   const changes = {};
@@ -897,6 +995,9 @@ async function saveSettings(){
     if (JSON.stringify(v) !== JSON.stringify(cur)) changes[k] = v;
   });
   if (!Object.keys(changes).length) return toast("Žiadna zmena.");
+  if (changes.leverage != null && changes.leverage > 5 &&
+      !confirm(`Naozaj nastaviť páku ${changes.leverage}×?\n\nPri prudkom pohybe trhu môžeš prísť o celý vklad pozície skôr, ako zareaguje stop-loss. Toto je vedomé rozhodnutie s rizikom straty peňazí.`))
+    return toast("Páka neuložená.");
   const d = await post("/api/settings", changes);
   if (!d.ok) return toast(`<span class="loss">Neuložené:</span> ${esc(d.error || "?")}`, 6000);
   const restart = (d.restart_required||[]).length ? " Zmena mincí sa prejaví po reštarte aplikácie." : "";
@@ -1180,8 +1281,19 @@ function connectWs(){
 
 initChart();
 refresh(); refreshSlow();
+async function refreshLlmMini(){
+  try {
+    const d = await api("/api/llm");
+    const u = d.today ? d.today.usd : null;
+    $("sys-llm").textContent = d.provider && d.provider !== "none"
+      ? ((u ?? 0).toFixed(2) + " $") : "vypnuté";
+  } catch(e){}
+}
+refreshLlmMini(); setInterval(refreshLlmMini, 60000);
 setInterval(refresh, 5000);
 setInterval(refreshSlow, 15000);
+refreshMarket();
+setInterval(refreshMarket, 10000);
 connectWs();
 </script>
 </body>

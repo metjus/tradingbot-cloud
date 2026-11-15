@@ -30,7 +30,7 @@ def test_verified_fee_table():
     # round trip: entry + exit taker + 2x slippage
     assert math.isclose(round_trip_cost_pct("kraken", slippage_pct=0.02), 1.64)
     assert math.isclose(round_trip_cost_pct("binance", slippage_pct=0.02), 0.24)
-    assert venue("unknown").key == "binance"
+    assert venue("unknown").key == "kraken_futures"
 
 
 def sig(entry=100.0, sl=99.0, tp=102.0, direction="LONG"):
