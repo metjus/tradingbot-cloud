@@ -21,7 +21,7 @@
 const JSON_HEADERS = {
   "content-type": "application/json",
   "access-control-allow-origin": "*",
-  "access-control-allow-headers": "authorization, content-type",
+  "access-control-allow-headers": "authorization, content-type, x-argus-device, x-argus-mode",
   "access-control-allow-methods": "GET, POST, OPTIONS",
   "cache-control": "no-store",
 };
@@ -78,6 +78,43 @@ async function role(request, env) {
   if (env.ENGINE_TOKEN && safeEqual(tok, env.ENGINE_TOKEN)) return "engine";
   if (env.DASHBOARD_TOKEN && safeEqual(tok, env.DASHBOARD_TOKEN)) return "dashboard";
   return null;
+}
+
+// ------------------------------------------------------------ phones ---
+// Remembers which phones use the dashboard token so the desktop app can
+// confirm "phone connected". Only a coarse device type is stored.
+function deviceName(request) {
+  const ua = request.headers.get("user-agent") || "";
+  let name = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad"
+    : /Android/.test(ua) ? "Android" : /Macintosh|Windows|Linux/.test(ua) ? "Počítač" : "Zariadenie";
+  const mode = request.headers.get("x-argus-mode");
+  if (mode === "app") name += " · appka";
+  else if (mode === "web") name += " · prehliadač";
+  return name;
+}
+
+async function getPhones(env) {
+  try { return JSON.parse((await cfgGet(env, "phones")) || "{}"); } catch (e) { return {}; }
+}
+
+async function touchPhone(request, env) {
+  const id = String(request.headers.get("x-argus-device") || "").replace(/[^a-zA-Z0-9-]/g, "").slice(0, 40);
+  if (!id) return;
+  const phones = await getPhones(env);
+  const t = now();
+  const cur = phones[id];
+  const name = deviceName(request);
+  if (cur && t - cur.last < 60 && cur.device === name) return;   // limit D1 writes
+  phones[id] = { device: name, first: cur ? cur.first : t, last: t };
+  const ids = Object.keys(phones).sort((a, b) => phones[b].last - phones[a].last).slice(0, 10);
+  await cfgSet(env, "phones", JSON.stringify(Object.fromEntries(ids.map((k) => [k, phones[k]]))));
+}
+
+async function phoneList(env) {
+  const phones = await getPhones(env);
+  return Object.values(phones)
+    .sort((a, b) => b.last - a.last)
+    .map((p) => ({ device: p.device, first_seen: p.first, last_seen: p.last }));
 }
 
 // ------------------------------------------------------------- VAPID ---
@@ -201,12 +238,14 @@ export default {
           return json({ error: "bad_pin", message: "Nesprávny kód." }, 403);
         }
         await env.DB.prepare("DELETE FROM config WHERE key = 'pair_pin'").run();
+        await cfgSet(env, "pin_redeemed_ts", String(now()));
         return json({ ok: true, dashboard_token: rec.token });
       }
       if (p === "/setup/rotate-dashboard" && request.method === "POST") {
         if (who !== "engine") return json({ error: "unauthorized" }, 401);
         const dashToken = randomToken(16);
         await cfgSet(env, "dashboard_token_hash", await sha256hex(dashToken));
+        await cfgSet(env, "phones", "{}");   // old phones are disconnected
         return json({ ok: true, dashboard_token: dashToken });
       }
 
@@ -219,7 +258,9 @@ export default {
           "INSERT INTO state (id, ts, json) VALUES (1, ?, ?) " +
           "ON CONFLICT(id) DO UPDATE SET ts = excluded.ts, json = excluded.json")
           .bind(now(), body).run();
-        return json({ ok: true });
+        // tell the desktop app which phones are connected (pairing confirmation)
+        return json({ ok: true, server_ts: now(), phones: await phoneList(env),
+                      pin_redeemed_ts: Number((await cfgGet(env, "pin_redeemed_ts")) || 0) });
       }
       if (p === "/ingest/notification" && request.method === "POST") {
         if (who !== "engine") return json({ error: "unauthorized" }, 401);
@@ -254,6 +295,7 @@ export default {
       // ---- dashboard endpoints ----
       if (p === "/api/state" && request.method === "GET") {
         if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
+        await touchPhone(request, env);
         const row = await env.DB.prepare("SELECT ts, json FROM state WHERE id = 1").first();
         const notif = await env.DB.prepare(
           "SELECT ts, category, title, body FROM notifications ORDER BY id DESC LIMIT 20").all();

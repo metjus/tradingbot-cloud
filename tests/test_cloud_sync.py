@@ -36,7 +36,9 @@ class MockWorker:
         def ingest_state(body: dict, authorization: str | None = Header(None)):
             self._auth(authorization)
             self.states.append(body)
-            return {"ok": True}
+            return {"ok": True, "server_ts": 1000, "pin_redeemed_ts": 990,
+                    "phones": [{"device": "iPhone · appka", "first_seen": 980,
+                                "last_seen": 995}]}
 
         @app.post("/ingest/notification")
         def ingest_notification(body: dict, authorization: str | None = Header(None)):
@@ -112,6 +114,11 @@ async def test_sync_pushes_polls_and_acks(tmp_path, mock_worker):
     snap = mock_worker.states[-1]
     assert snap["bot_state"] in ("running", "paused")
     assert snap["portfolio"]["equity"] == 10000.0
+
+    # the Worker's pairing confirmation is kept for the desktop card
+    assert sync.last_sync_ts is not None
+    assert sync.remote["phones"][0]["device"] == "iPhone · appka"
+    assert sync.remote["pin_redeemed_ts"] == 990
 
     assert mock_worker.notifications
     n = mock_worker.notifications[0]

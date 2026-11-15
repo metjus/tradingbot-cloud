@@ -1,5 +1,14 @@
 # Zoznam zmien
 
+## 1.1 – aktualizácia párovania mobilu
+
+- Mobilná appka má tlačidlo **Naskenovať QR kód** (kamera priamo v appke), takže sa
+  spáruje appka z plochy, nie iba prehliadač. Po spárovaní ukáže potvrdenie.
+- Desktop v karte Mobilná aplikácia živo ukazuje stav spojenia so serverom a
+  pripojené telefóny (typ, appka/prehliadač, kedy boli naposledy aktívne) a po
+  spárovaní zobrazí **✓ Telefón spárovaný**. Použitý 6-miestny kód sa označí.
+- Oprava: stav synchronizácie ostával „starting“, kým sa stránka neotvorila znova.
+
 ## 1.1 (november 2026)
 
 Aktualizácia: stiahni nový `ARGUS-setup.exe` a nainštaluj cez starú verziu.

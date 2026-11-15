@@ -898,30 +898,90 @@ async function renderCloud(){
       <div id="cloud-msg" class="small" style="margin-top:8px"></div>`;
     return;
   }
-  const sync = c.sync || {};
-  box.innerHTML = `<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+  const phones = c.phones || [];
+  box.innerHTML = `<div id="cloud-live" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px"></div>
+    <details id="cloud-add" ${phones.length ? "" : "open"}>
+      <summary class="small" style="cursor:pointer;margin-bottom:10px">${phones.length ? "Pridať ďalší telefón" : "Pripojiť telefón"}</summary>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
       <div id="qr" style="background:#fff;padding:10px;border-radius:10px;line-height:0"></div>
       <div style="flex:1;min-width:260px;display:flex;flex-direction:column;gap:8px">
         <div>Server: <span class="mono">${esc(c.url)}</span></div>
-        <div>Synchronizácia: <b class="${sync.status === "ok" ? "profit" : "warn"}">${esc(sync.status || "?")}</b>
-          <span class="small">${esc(sync.detail || "")}</span></div>
-        <div class="small">Naskenuj QR kód fotoaparátom telefónu - otvorí sa ARGUS a sám sa spáruje.
-          Na iPhone ho potom pridaj na plochu (Zdieľať → Pridať na plochu).</div>
-        <div class="small">Appka pridaná na plochu (hlavne iPhone) sa spáruje krátkym kódom:
-          otvor ju, a zadaj 6-miestny kód.</div>
+        <div class="small"><b>1.</b> Otvor v telefóne appku ARGUS (adresu servera) a klikni
+          <b>Naskenovať QR kód</b> - alebo naskenuj QR kód fotoaparátom.</div>
+        <div class="small"><b>2.</b> Ak používaš appku z plochy (iPhone), môžeš namiesto QR zadať 6-miestny kód:</div>
         <div style="display:flex;gap:10px;align-items:center">
           <button class="btn-primary btn-sm" onclick="cloudPin()">Zobraziť 6-miestny kód</button>
           <span id="pin" class="mono" style="font-size:22px;letter-spacing:4px"></span>
           <span id="pin-exp" class="small"></span>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn-ghost btn-sm" onclick="cloudRotate()">Nový kód (odpojí telefóny)</button>
-          <button class="btn-danger btn-sm" onclick="cloudUnpair()">Zrušiť párovanie</button>
-        </div>
-      </div></div>`;
+        <div class="small">Keď sa telefón pripojí, zobrazí sa tu hore so zelenou fajkou.</div>
+      </div></div>
+    </details>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn-ghost btn-sm" onclick="cloudRotate()">Nový kód (odpojí telefóny)</button>
+      <button class="btn-danger btn-sm" onclick="cloudUnpair()">Zrušiť párovanie</button>
+    </div>`;
   if (window.QRCode && c.pair_link)
     new QRCode($("qr"), {text: c.pair_link, width: 168, height: 168,
                          colorDark: "#0B0E15", colorLight: "#ffffff"});
+  cloudLive.known = new Set(phones.map(p => p.device + "|" + p.first_seen));
+  cloudLive.pinTs = c.pin_redeemed_ts || 0;
+  cloudLive(c);
+  clearInterval(cloudLive._t);
+  cloudLive._t = setInterval(async () => {
+    if (!$("cloud-live") || !$("v-settings").classList.contains("active")) return clearInterval(cloudLive._t);
+    try { cloudLive(await api("/api/cloud")); } catch (e) {}
+  }, 3000);
+}
+function agoText(s){
+  if (s == null) return "";
+  s = Math.max(0, Math.round(s));
+  if (s < 60) return `pred ${s} s`;
+  if (s < 3600) return `pred ${Math.round(s / 60)} min`;
+  if (s < 86400) return `pred ${Math.round(s / 3600)} h`;
+  return `pred ${Math.round(s / 86400)} d`;
+}
+// live part of the pairing card: computer->server link and connected phones
+function cloudLive(c){
+  const box = $("cloud-live");
+  if (!box || !c.paired) return;
+  const nowS = Date.now() / 1000;
+  const sinceSync = c.last_sync_ts ? nowS - c.last_sync_ts : null;
+  const sync = c.sync || {};
+  const linkOk = sinceSync != null && sinceSync < 90;
+  const link = linkOk
+    ? `<span class="profit">● Počítač ↔ server: pripojené</span> <span class="small">(${agoText(sinceSync)})</span>`
+    : (sync.status === "starting" || sinceSync == null
+        ? `<span class="warn">● Počítač ↔ server: pripájam…</span>`
+        : `<span class="loss">● Počítač ↔ server: bez spojenia</span> <span class="small">${esc(sync.detail || "")}</span>`);
+  const phones = c.phones || [];
+  const age = (p) => (c.server_ts ? c.server_ts - p.last_seen : 0) + (sinceSync || 0);
+  const rows = phones.map(p => {
+    const a = age(p), active = a < 120;
+    return `<div>${active ? '<span class="profit">✓</span>' : '<span class="small">✓</span>'}
+      Telefón pripojený: <b>${esc(p.device)}</b>
+      <span class="small">· ${active ? "aktívny " : "naposledy "}${agoText(a)}</span></div>`;
+  }).join("");
+  box.innerHTML = `<div>${link}</div>` + (rows ||
+    `<div class="warn">◌ Čakám na telefón… <span class="small">(žiadny telefón ešte nie je spárovaný)</span></div>`);
+
+  // pairing confirmation: a new phone appeared or the PIN was used
+  const known = cloudLive.known || new Set();
+  const fresh = phones.filter(p => !known.has(p.device + "|" + p.first_seen));
+  const pinUsed = (c.pin_redeemed_ts || 0) > (cloudLive.pinTs || 0);
+  if (fresh.length || pinUsed){
+    toast(`<span class="profit">✓ Telefón spárovaný</span>${fresh.length ? " - " + esc(fresh[0].device) : ""}`, 6000);
+    if (pinUsed && $("pin")){
+      clearInterval(cloudPin._t);
+      $("pin").innerHTML = '<span class="profit" style="font-size:15px;letter-spacing:0">✓ kód použitý</span>';
+      $("pin-exp").textContent = "";
+    }
+    const add = $("cloud-add");
+    if (add && fresh.length){ add.open = false; add.querySelector("summary").textContent = "Pridať ďalší telefón"; }
+  }
+  fresh.forEach(p => known.add(p.device + "|" + p.first_seen));
+  cloudLive.known = known;
+  cloudLive.pinTs = c.pin_redeemed_ts || 0;
 }
 async function cloudPair(){
   const url = $("cloud-url").value.trim();
@@ -929,7 +989,7 @@ async function cloudPair(){
   $("cloud-msg").textContent = "Párujem…";
   const d = await post("/api/cloud/pair", {url, pairing_code: $("cloud-code").value});
   if (!d.ok){ $("cloud-msg").innerHTML = `<span class="loss">${esc(d.error || "Nepodarilo sa")}</span>`; return; }
-  toast('<span class="profit">Spárované.</span> Naskenuj QR kód telefónom.');
+  toast('<span class="profit">Server spárovaný.</span> Teraz pripoj telefón cez QR kód.');
   renderCloud();
 }
 async function cloudPin(){

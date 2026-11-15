@@ -228,7 +228,12 @@ class Engine:
                                         or self.settings.cloud_token)),
                 "url": url,
                 "pair_link": f"{url}/#pair={dash}" if url and dash else None,
-                "sync": comp}
+                "sync": comp,
+                "last_sync_ts": self.cloud.last_sync_ts if self.cloud else None,
+                "phones": (self.cloud.remote.get("phones") or []) if self.cloud else [],
+                "pin_redeemed_ts": (self.cloud.remote.get("pin_redeemed_ts") or 0)
+                if self.cloud else 0,
+                "server_ts": self.cloud.remote.get("server_ts") if self.cloud else None}
 
     def reload_model(self) -> None:
         """Hot-swap the active ML model into the decision engine."""

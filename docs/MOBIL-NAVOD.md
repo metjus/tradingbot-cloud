@@ -57,31 +57,38 @@ Pri každej ďalšej zmene mobilnej aplikácie sa server aktualizuje sám.
 > Ak beh zčervená s hláškou „Chýbajú Cloudflare údaje“, vráť sa ku kroku 1.
 > Ak hlási chybu oprávnení pri D1, tokenu chýba oprávnenie *D1 → Edit*.
 
-## Krok 3 – Spárovanie s počítačom (raz)
+## Krok 3 – Spárovanie servera s počítačom (raz)
 
 1. Na počítači otvor ARGUS → vľavo **Settings** → hore karta **Mobilná aplikácia**.
 2. Vlož **adresu servera** z kroku 2 (a heslo, ak si nastavil `ARGUS_PAIRING_CODE`).
-3. Klikni **Spárovať**. Zobrazí sa QR kód a stav synchronizácie „ok“.
+3. Klikni **Spárovať**. V karte sa zobrazí zelené **Počítač ↔ server: pripojené**,
+   QR kód a **Čakám na telefón…**.
 
 ## Krok 4a – Android
 
-1. Naskenuj QR kód fotoaparátom (alebo Google Lens) a otvor odkaz v Chrome.
-   Aplikácia sa sama spáruje a ukáže tvoj kapitál.
-2. Chrome ponúkne **Inštalovať aplikáciu** (alebo menu ⋮ → **Pridať na plochu**).
-   Na ploche sa objaví ikona ARGUS.
-3. V aplikácii otvor **Ovládanie** → vyber, ktoré notifikácie chceš →
+1. V Chrome otvor adresu servera z kroku 2.
+2. Menu ⋮ → **Inštalovať aplikáciu** (alebo **Pridať na plochu**). Na ploche sa objaví ikona ARGUS.
+3. Otvor ARGUS z plochy → **📷 Naskenovať QR kód** → povoľ kameru → namier na QR kód
+   v počítači. Telefón ukáže **✓ Spárované s počítačom**.
+4. V aplikácii otvor **Ovládanie** → vyber, ktoré notifikácie chceš →
    **Zapnúť / uložiť notifikácie** → povoľ.
 
 ## Krok 4b – iPhone (iOS 16.4 a novší)
 
-Na iPhone fungujú notifikácie iba v aplikácii pridanej na plochu.
+Na iPhone fungujú notifikácie iba v aplikácii pridanej na plochu, a tá má vlastné
+úložisko oddelené od Safari – preto sa páruje až appka z plochy.
 
-1. Otvor v **Safari** adresu servera z kroku 2 (alebo naskenuj QR kód).
+1. Otvor v **Safari** adresu servera z kroku 2.
 2. Dole tlačidlo **Zdieľať** (štvorček so šípkou) → **Pridať na plochu** → **Pridať**.
-3. Otvor ARGUS **z plochy**. Zobrazí sa obrazovka Spárovanie.
-4. Na počítači v karte Mobilná aplikácia klikni **Zobraziť 6-miestny kód** a
-   zadaj ho do telefónu (kód platí 10 minút) → **Spárovať**.
-5. **Ovládanie** → vyber notifikácie → **Zapnúť / uložiť notifikácie** → **Povoliť**.
+3. Otvor ARGUS **z plochy** → **📷 Naskenovať QR kód** → povoľ kameru → namier na QR kód
+   v počítači. (Alebo v počítači klikni **Zobraziť 6-miestny kód** a zadaj ho.)
+4. **Ovládanie** → vyber notifikácie → **Zapnúť / uložiť notifikácie** → **Povoliť**.
+
+**Potvrdenie na počítači:** hneď po spárovaní sa v karte Mobilná aplikácia zobrazí
+**✓ Telefón spárovaný** a riadok napr. *Telefón pripojený: iPhone · appka · aktívny pred 3 s*.
+Pri každom telefóne vidíš, či je spárovaná appka z plochy (*appka*) alebo iba
+prehliadač (*prehliadač*). Skenovať QR kód fotoaparátom tiež ide, ale otvorí ho
+v prehliadači, nie v appke na ploche.
 
 ## Ako aplikácia funguje
 
@@ -106,7 +113,8 @@ Na iPhone fungujú notifikácie iba v aplikácii pridanej na plochu.
 |---|---|
 | Spárovanie hlási „už spárovaný“ | Na pôvodnom počítači v karte Mobilná aplikácia klikni **Zrušiť párovanie**. Ak to nejde: Actions → Deploy mobile app → Run workflow so zaškrtnutým **Zrušiť párovanie**. |
 | Telefón ukazuje „ZLÝ KÓD“ | Kód bol zmenený (tlačidlo Nový kód). Spáruj telefón znova 6-miestnym kódom. |
-| Stále OFFLINE | Beží ARGUS na počítači? V karte Mobilná aplikácia musí byť Synchronizácia „ok“. |
+| Stále OFFLINE | Beží ARGUS na počítači? V karte Mobilná aplikácia musí svietiť zelené **Počítač ↔ server: pripojené**. |
+| Skener hlási „prístup ku kamere zamietnutý“ | Povoľ kameru: iPhone Nastavenia → ARGUS/Safari → Kamera; Android: podržať ikonu → Info o aplikácii → Povolenia. Alebo použi 6-miestny kód. |
 | Neprichádzajú notifikácie (iPhone) | Aplikácia musí byť otvorená z plochy, nie zo Safari; v Nastavenia iPhonu → Notifikácie → ARGUS povolené. |
 | Nevidím QR kód | Desktop potrebuje internet na načítanie generátora QR; použi 6-miestny kód. |
 

@@ -88,18 +88,28 @@ svg.spark{width:100%;height:70px;display:block}
 <main>
   <!-- pairing -->
   <section id="view-setup" class="card hidden">
-    <div class="label">Spárovanie</div>
-    <p class="small">V počítači otvor ARGUS → <b>Settings → Mobilná aplikácia</b>, klikni
-      <b>Zobraziť 6-miestny kód</b> a zadaj ho sem. (Alebo naskenuj QR kód fotoaparátom.)</p>
+    <div class="label">Spárovanie s počítačom</div>
+    <p class="small">V počítači otvor ARGUS → <b>Settings → Mobilná aplikácia</b>. Potom naskenuj
+      QR kód, ktorý sa tam zobrazuje.</p>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+      <button class="btn-primary" onclick="startScan()">📷 Naskenovať QR kód</button>
+      <div class="small" style="text-align:center;margin-top:6px">alebo klikni v počítači <b>Zobraziť 6-miestny kód</b> a zadaj ho:</div>
       <input type="text" id="inp-code" placeholder="6-miestny kód" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off"
         style="font-size:24px;letter-spacing:6px;text-align:center" class="mono">
-      <button class="btn-primary" onclick="pairWithCode()">Spárovať</button>
+      <button class="btn-ghost" onclick="pairWithCode()">Spárovať kódom</button>
       <div id="setup-msg" class="small"></div>
     </div>
   </section>
 
-  <!-- overview -->
+  <!-- pairing done -->
+  <section id="view-paired" class="card hidden" style="text-align:center">
+    <div style="font-size:46px;line-height:1;color:var(--profit)">✓</div>
+    <div style="font-size:18px;font-weight:700;margin:10px 0 6px">Spárované s počítačom</div>
+    <p class="small">Počítač to potvrdí v karte Mobilná aplikácia. Odteraz tu vidíš stav bota a dostávaš upozornenia.</p>
+    <div id="paired-hint" class="banner warn hidden" style="text-align:left;margin:10px 0"></div>
+    <button class="btn-primary" onclick="show('overview'); tick();">Pokračovať</button>
+  </section>
+
   <section id="view-overview" class="hidden" style="display:flex;flex-direction:column;gap:12px">
     <div id="offline-banner" class="banner bad hidden"></div>
     <div class="card" style="background:linear-gradient(160deg,#141A2B,#11151F)">
@@ -174,6 +184,16 @@ svg.spark{width:100%;height:70px;display:block}
   </section>
 </main>
 
+<div id="scanner" class="hidden" style="position:fixed;inset:0;background:#000;z-index:50;display:flex;flex-direction:column">
+  <video id="scan-video" playsinline muted style="flex:1;width:100%;object-fit:cover"></video>
+  <div style="position:absolute;left:50%;top:45%;width:62vmin;height:62vmin;transform:translate(-50%,-50%);
+    border:3px solid rgba(255,255,255,.85);border-radius:18px;box-shadow:0 0 0 100vmax rgba(0,0,0,.45)"></div>
+  <div style="position:absolute;left:0;right:0;bottom:0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px">
+    <div id="scan-msg" class="small" style="text-align:center;color:#fff">Namier na QR kód v počítači</div>
+    <button class="btn-ghost" onclick="stopScan()">Zrušiť</button>
+  </div>
+</div>
+
 <nav id="nav">
   <a href="#overview" class="active" data-view="overview">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12 L12 4 L21 12"/><path d="M6 10 L6 20 L18 20 L18 10"/></svg>Prehľad</a>
@@ -201,10 +221,17 @@ const CATEGORIES = [
 ];
 
 function show(view){
-  for (const v of ["setup", "overview", "trades", "news", "controls"])
+  for (const v of ["setup", "paired", "overview", "trades", "news", "controls"])
     $("view-" + v).classList.toggle("hidden", v !== view);
   document.querySelectorAll("nav a").forEach(a => a.classList.toggle("active", a.dataset.view === view));
-  $("nav").classList.toggle("hidden", view === "setup");
+  $("nav").classList.toggle("hidden", view === "setup" || view === "paired");
+}
+const isApp = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+function deviceId(){
+  let id = localStorage.getItem("argus_device");
+  if (!id){ id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)); localStorage.setItem("argus_device", id); }
+  return id;
 }
 document.querySelectorAll("nav a").forEach(a => a.onclick = (e) => {
   e.preventDefault();
@@ -216,13 +243,123 @@ function saveToken(t){
   localStorage.setItem("argus_token", t.trim());
   idbSet({url: API, token: t.trim()});
 }
+function tokenFromText(text){
+  // QR from the desktop app: https://<server>/#pair=<token>; a bare token also works
+  const m = String(text || "").match(/pair=([0-9a-fA-F]{16,})/) || String(text || "").trim().match(/^([0-9a-fA-F]{16,})$/);
+  if (!m) return {error: "Toto nie je párovací QR kód ARGUS."};
+  try {
+    const u = new URL(text);
+    if (u.origin !== location.origin) return {error: "QR kód patrí inému serveru (" + u.host + ")."};
+  } catch (e) {}
+  return {token: m[1]};
+}
+async function finishPairing(t){
+  saveToken(t);
+  try { await api("/api/state"); }
+  catch(e){
+    localStorage.removeItem("argus_token");
+    show("setup");
+    $("setup-msg").innerHTML = '<span class="loss">Kód už neplatí.</span> V počítači skontroluj kartu Mobilná aplikácia.';
+    return false;
+  }
+  const hint = $("paired-hint");
+  if (!isApp()){
+    hint.innerHTML = isIOS()
+      ? "<b>Tip:</b> pridaj si ARGUS na plochu (Zdieľať → <b>Pridať na plochu</b>). Appka na ploche je na iPhone oddelená od Safari, preto ju po otvorení spáruj ešte raz tlačidlom <b>Naskenovať QR kód</b>."
+      : "<b>Tip:</b> nainštaluj si ARGUS (menu ⋮ → <b>Inštalovať aplikáciu</b> / Pridať na plochu). Ostane spárovaná.";
+    hint.classList.remove("hidden");
+  } else hint.classList.add("hidden");
+  show("paired");
+  tick();
+  return true;
+}
 function pairFromHash(){
   const m = location.hash.match(/pair=([0-9a-fA-F]{16,})/);
   if (!m) return false;
-  saveToken(m[1]);
   history.replaceState(null, "", location.pathname);
+  finishPairing(m[1]);
   return true;
 }
+
+// --- QR scanner (BarcodeDetector where available, jsQR otherwise) ---
+let scanStream = null, scanRun = false;
+function loadJsQR(){
+  if (window.jsQR) return Promise.resolve();
+  return new Promise((res, rej) => {
+    const sc = document.createElement("script");
+    sc.src = "jsqr.min.js"; sc.onload = res; sc.onerror = () => rej(new Error("jsqr"));
+    document.head.appendChild(sc);
+  });
+}
+async function startScan(){
+  $("setup-msg").textContent = "";
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    $("setup-msg").innerHTML = '<span class="loss">Tento prehliadač nepovoľuje kameru.</span> Použi 6-miestny kód.';
+    return;
+  }
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({video: {facingMode: "environment"}, audio: false});
+  } catch(e){
+    $("setup-msg").innerHTML = '<span class="loss">Prístup ku kamere bol zamietnutý.</span> Povoľ kameru v nastaveniach telefónu, alebo použi 6-miestny kód.';
+    return;
+  }
+  const video = $("scan-video");
+  video.srcObject = scanStream;
+  $("scanner").classList.remove("hidden");
+  $("scan-msg").textContent = "Namier na QR kód v počítači";
+  await video.play().catch(() => {});
+  let detector = null;
+  try {
+    if ("BarcodeDetector" in window && (await BarcodeDetector.getSupportedFormats()).includes("qr_code"))
+      detector = new BarcodeDetector({formats: ["qr_code"]});
+  } catch(e){}
+  if (!detector){
+    try { await loadJsQR(); }
+    catch(e){ stopScan(); $("setup-msg").innerHTML = '<span class="loss">Skener sa nenačítal.</span> Použi 6-miestny kód.'; return; }
+  }
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", {willReadFrequently: true});
+  scanRun = true;
+  const loop = async () => {
+    if (!scanRun) return;
+    let text = null;
+    try {
+      if (video.readyState >= 2){
+        if (detector){
+          const codes = await detector.detect(video);
+          if (codes.length) text = codes[0].rawValue;
+        } else {
+          const w = video.videoWidth, h = video.videoHeight, k = Math.min(1, 640 / Math.max(w, h));
+          canvas.width = Math.round(w * k); canvas.height = Math.round(h * k);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = window.jsQR(img.data, img.width, img.height, {inversionAttempts: "dontInvert"});
+          if (code) text = code.data;
+        }
+      }
+    } catch(e){}
+    if (text){
+      const r = tokenFromText(text);
+      if (r.token){
+        if (navigator.vibrate) navigator.vibrate(60);
+        stopScan();
+        $("setup-msg").textContent = "Párujem…";
+        await finishPairing(r.token);
+        return;
+      }
+      $("scan-msg").textContent = r.error;
+    }
+    setTimeout(loop, 180);
+  };
+  loop();
+}
+function stopScan(){
+  scanRun = false;
+  if (scanStream) scanStream.getTracks().forEach(t => t.stop());
+  scanStream = null;
+  $("scanner").classList.add("hidden");
+}
+
 async function pairWithCode(){
   let code = $("inp-code").value.replace(/\s+/g, "");
   if (!code) return;
@@ -233,14 +370,13 @@ async function pairWithCode(){
     const d = await r.json().catch(() => ({}));
     if (!d.ok){ $("setup-msg").innerHTML = `<span class="loss">${esc(d.message || "Kód nesedí.")}</span>`; return; }
     code = d.dashboard_token;
+  } else {
+    const r = tokenFromText(code);
+    if (!r.token){ $("setup-msg").innerHTML = '<span class="loss">Zadaj 6-miestny kód z počítača.</span>'; return; }
+    code = r.token;
   }
-  saveToken(code);
   $("setup-msg").textContent = "Overujem…";
-  try { await api("/api/state"); show("overview"); tick(); }
-  catch(e){
-    localStorage.removeItem("argus_token");
-    $("setup-msg").innerHTML = '<span class="loss">Kód nesedí.</span> Skontroluj ho v desktopovej aplikácii.';
-  }
+  if (await finishPairing(code)) $("inp-code").value = "";
 }
 function resetSetup(){
   if (!confirm("Odpojiť tento telefón?")) return;
@@ -249,7 +385,8 @@ function resetSetup(){
 
 async function api(path, opts = {}){
   const r = await fetch(API + path, {...opts, headers: {
-    "Authorization": "Bearer " + token(), "Content-Type": "application/json", ...(opts.headers || {})}});
+    "Authorization": "Bearer " + token(), "Content-Type": "application/json",
+    "X-Argus-Device": deviceId(), "X-Argus-Mode": isApp() ? "app" : "web", ...(opts.headers || {})}});
   if (!r.ok) throw new Error("HTTP " + r.status);
   return r.json();
 }
@@ -426,9 +563,10 @@ function idbSet(val){
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
 renderCats();
-pairFromHash();
-if (!token()) show("setup");
-else { show("overview"); idbSet({url: API, token: token()}); }
+if (!pairFromHash()){
+  if (!token()) show("setup");
+  else { show("overview"); idbSet({url: API, token: token()}); }
+}
 tick();
 setInterval(tick, 5000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });

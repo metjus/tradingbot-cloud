@@ -49,6 +49,10 @@ class CloudSync:
             "User-Agent": f"argus-engine/{__version__}"})
         self._tasks: list[asyncio.Task] = []
         self._dirty = asyncio.Event()
+        self._dirty.set()            # first snapshot goes out immediately
+        # what the Worker reported back on the last successful push
+        self.remote: dict = {}
+        self.last_sync_ts: float | None = None
         health.register("cloud_sync", stale_after=max(60.0, push_seconds * 5))
 
     def start(self) -> None:
@@ -92,6 +96,14 @@ class CloudSync:
                 r = await self._client.post(f"{self._base}/ingest/state",
                                             json=self.snapshot())
                 r.raise_for_status()
+                try:
+                    data = r.json()
+                    if isinstance(data, dict):
+                        self.remote = {k: data.get(k) for k in
+                                       ("phones", "pin_redeemed_ts", "server_ts")}
+                except ValueError:
+                    pass
+                self.last_sync_ts = time.time()
                 failures = 0
                 self._health.heartbeat("cloud_sync", Status.OK, "synced")
             except asyncio.CancelledError:
