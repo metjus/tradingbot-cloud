@@ -920,6 +920,8 @@ const FIELDS = {
     ["giveback_min_r", "Ochrana zisku od (R)", "Ochrana sa zapne, až keď zisk dosiahol aspoň toľkoto R."],
     ["sentiment_exit", "Reagovať na zvrat sentimentu", ""],
     ["regime_exit", "Reagovať na zvrat trhového režimu", ""],
+    ["volume_exit", "Zavrieť zisk, keď objem vyschne", "V zisku a objem je 2 sviečky pod polovicou priemeru - hybná sila vyprchala, zisk sa uzamkne."],
+    ["volume_exit_min_r", "Objemový exit od zisku (R)", ""],
   ],
   "form-symbols": [
     ["auto_symbols", "Vyberať mince automaticky podľa likvidity", "Najobchodovanejšie perpetual kontrakty podľa 24h objemu v USD; meme mince a tokenizované akcie sa vynechávajú."],
@@ -928,7 +930,7 @@ const FIELDS = {
   ],
   "form-llm": [
     ["llm_provider", "Aktívny poskytovateľ", "Vždy je aktívny najviac jeden. „none“ = bez AI, iba lokálny lexikón."],
-    ["llm_model", "Model (prázdne = predvolený)", ""],
+    ["llm_model", "Model", "Predvolený je najlacnejší vhodný model daného poskytovateľa."],
     ["llm_daily_budget_usd", "Denný rozpočet na AI ($)", "Nad limit sa AI v ten deň nevolá."],
     ["ml_auto_activate", "Automaticky nasadiť lepší ML model", "Iba model, ktorý prešiel walk-forward validáciou a je lepší ako aktuálny."],
   ],
@@ -960,6 +962,7 @@ async function loadSettings(){
       fieldHtml(k, label, hint, s.values[k], (s.choices||{})[k])).join("");
   const lev = document.querySelector('[data-k="leverage"]');
   if (lev){ lev.addEventListener("input", leverageWarning); leverageWarning(); }
+  llmModelSelect();
   $("tbl-venues").innerHTML = "<tr><th>Burza</th><th>Maker</th><th>Taker</th><th>Celý obchod*</th><th>Short/páka</th><th></th></tr>" +
     (s.venues||[]).map(v => `<tr><td>${esc(v.name)}</td><td class="mono">${v.maker_pct}%</td>
       <td class="mono">${v.taker_pct}%</td><td class="mono">${v.round_trip_pct}%</td>
@@ -982,6 +985,30 @@ function leverageWarning(){
   else if (v > 3) box.innerHTML = `<div class="hint" style="color:var(--warn)">Páka nad 3× zvyšuje
     citlivosť na prudké skoky ceny.</div>`;
   else box.innerHTML = "";
+}
+// llm_model as a dropdown with monthly cost estimates per provider
+let llmInfo = null;
+async function llmModelSelect(){
+  try { llmInfo = llmInfo || await api("/api/llm"); } catch(e){ return; }
+  const provSel = document.querySelector('[data-k="llm_provider"]');
+  const el = document.querySelector('[data-k="llm_model"]');
+  if (!provSel || !el) return;
+  const build = () => {
+    const prov = (llmInfo.providers || {})[provSel.value];
+    const cur = settingsMeta.values.llm_model || "";
+    const inp = document.querySelector('[data-k="llm_model"]');
+    if (!prov){
+      inp.outerHTML = `<select data-k="llm_model"><option value="">—</option></select>`;
+      return;
+    }
+    const est = prov.estimates_usd_month || {};
+    const opts = [`<option value="">predvolený (${esc(prov.default)}${est[prov.default] != null ? " · ~" + est[prov.default].toFixed(2) + " $/mes." : ""})</option>`]
+      .concat((prov.models || []).map(m =>
+        `<option value="${esc(m)}" ${m === cur ? "selected" : ""}>${esc(m)}${est[m] != null ? " · ~" + est[m].toFixed(2) + " $/mes." : ""}</option>`));
+    inp.outerHTML = `<select data-k="llm_model">${opts.join("")}</select>`;
+  };
+  build();
+  provSel.addEventListener("change", build);
 }
 async function saveSettings(){
   const changes = {};

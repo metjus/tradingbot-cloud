@@ -47,6 +47,9 @@ class AnalysisService:
         self._blackout_logged: dict[str, str] = {}
         #: last M5 FeatureSet dict per symbol (for learning context storage)
         self.last_features_m5: dict[str, dict] = {}
+        #: consecutive closed 4h bars with volume under half its 20-bar
+        #: average (feeds the volume-fade exit)
+        self.last_vol_fade: dict[str, int] = {}
         self._task: asyncio.Task | None = None
         health.register("analysis", stale_after=1800)
 
@@ -118,9 +121,24 @@ class AnalysisService:
                             features=features, regime=Regime.UNCERTAIN,
                             sentiment=sentiment, spread_pct=spread)
         ctx.extras["btc_trend"] = self._btc_trend(symbol)
+        self.last_vol_fade[symbol] = self._vol_fade(candles.get(Timeframe.H4) or [])
         result = self._engine.evaluate(ctx, account)
         self.last_regime[symbol] = result.regime
         return result
+
+    @staticmethod
+    def _vol_fade(bars, thr: float = 0.5, lookback: int = 20) -> int:
+        """Consecutive bars (from the newest back) whose volume sits under
+        ``thr`` x the trailing ``lookback``-bar average."""
+        vols = [b.volume for b in bars]
+        run = 0
+        for k in range(len(vols) - 1, lookback - 1, -1):
+            avg = sum(vols[k - lookback:k]) / lookback
+            if avg > 0 and vols[k] < thr * avg:
+                run += 1
+            else:
+                break
+        return run
 
     def _btc_trend(self, symbol: str) -> int | None:
         """BTC 4h close vs EMA200: +1 above, -1 below (altcoin direction

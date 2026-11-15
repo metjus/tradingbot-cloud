@@ -58,6 +58,8 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     "giveback_min_r": (2.0, float, 0.5, 5.0),
     "sentiment_exit": (True, bool, None, None),
     "regime_exit": (True, bool, None, None),
+    "volume_exit": (True, bool, None, None),
+    "volume_exit_min_r": (1.0, float, 0.3, 5.0),
     # instruments (applied on next engine start)
     "symbols": (DEFAULT_SYMBOLS, list, None, None),
     "auto_symbols": (True, bool, None, None),   # pick coins by 24h USD volume

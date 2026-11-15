@@ -147,6 +147,7 @@ class Engine:
         self.executor.sentiment_provider = (
             self.news.tracker.score_for if self.news is not None else None)
         self.executor.regime_provider = self.analysis.last_regime.get
+        self.executor.vol_fade_provider = self.analysis.last_vol_fade.get
 
         self.apply_settings()
         self.runtime.on_change(lambda _changed: self.apply_settings())
@@ -307,6 +308,8 @@ class Engine:
         ep.trail_distance_r = rs["trail_distance_r"]
         ep.giveback_pct = rs["giveback_pct"]
         ep.giveback_min_r = rs["giveback_min_r"]
+        ep.volume_exit = rs["volume_exit"]
+        ep.volume_exit_min_r = rs["volume_exit_min_r"]
         ep.sentiment_exit = rs["sentiment_exit"]
         ep.regime_exit = rs["regime_exit"]
         ep.round_trip_cost_pct = cost

@@ -1,6 +1,14 @@
 # Zoznam zmien
 
-## 1.2.x - lacnejšie maker vstupy
+## 1.2.x - objemový exit, výber AI modelu, lacnejšie maker vstupy
+
+- **Objemový exit**: keď je pozícia v zisku aspoň 1R a objem na 4h grafe
+  ostane 2 sviečky pod polovicou priemeru (hybná sila vyprchala), zisk sa
+  uzamkne. Na 2 rokoch dát zdvihol profit factor mimo vzorky z 1,09 na
+  1,17 a znížil prepad. Vypína sa v Settings.
+- **Výber AI modelu** priamo v Settings: rozbaľovací zoznam s odhadom
+  mesačnej ceny; predvolený je najlacnejší model poskytovateľa
+  (Claude Haiku ~0,9 $/mes. namiesto Opus ~35 $/mes.).
 
 - Vstup do pozície ide predvolene **limitným (maker) príkazom** presne na
   cene signálu: poplatok 0,02 % namiesto 0,05 % a žiadny sklz pri vstupe.

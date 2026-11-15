@@ -249,3 +249,38 @@ def test_maker_round_trip_cost_is_cheaper():
     maker = round_trip_cost_pct("kraken_futures", "maker", 0.02)
     assert math.isclose(taker, 0.14)
     assert math.isclose(maker, 0.09)
+
+
+# --- volume-fade exit -------------------------------------------------------
+
+def test_vol_fade_counts_consecutive_quiet_bars():
+    from argus.analysis.service import AnalysisService
+    mk = lambda vols: [Candle("S/USD", H4, 1_700_000_000 + i * 14400,
+                              1, 1, 1, 1, v, complete=True)
+                       for i, v in enumerate(vols)]
+    base = [100.0] * 30
+    assert AnalysisService._vol_fade(mk(base)) == 0
+    assert AnalysisService._vol_fade(mk(base + [40.0, 30.0])) == 2
+    assert AnalysisService._vol_fade(mk(base + [40.0, 90.0])) == 0
+    assert AnalysisService._vol_fade(mk([10.0] * 5)) == 0      # too short
+
+
+def test_volume_exit_locks_profit_only_in_profit():
+    from argus.trading.exits import ExitParams, evaluate_exit
+    from argus.trading.portfolio import OpenPosition
+    from datetime import datetime, timezone
+    P = ExitParams(round_trip_cost_pct=0.09)
+    def pos():
+        return OpenPosition(1, "c", "BTC/USD", "LONG", 1.0, 100.0, 98.0, 112.0,
+                            datetime.now(timezone.utc), "s", 0.5,
+                            initial_stop=98.0)
+    acts = evaluate_exit(pos(), 102.5, P, vol_fade=2)       # +1.25R, quiet
+    assert acts and acts[0].kind == "close" and "objem" in acts[0].reason
+    assert not any(a.kind == "close" for a in
+                   evaluate_exit(pos(), 100.5, P, vol_fade=5))   # +0.25R: hold
+    p2 = pos()
+    acts = evaluate_exit(p2, 102.5, P, vol_fade=1)          # only 1 quiet bar
+    assert not any(a.kind == "close" for a in acts)
+    P.volume_exit = False
+    assert not any(a.kind == "close" for a in
+                   evaluate_exit(pos(), 102.5, P, vol_fade=4))

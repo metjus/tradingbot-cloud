@@ -60,8 +60,8 @@ PRICES = {
 
 PROVIDERS = {
     "claude": {"name": "Anthropic Claude", "secret": "anthropic_api_key",
-               "models": ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
-               "default": "claude-opus-5-5"},
+               "models": ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"],
+               "default": "claude-haiku-5-5"},
     "openai": {"name": "OpenAI GPT", "secret": "openai_api_key",
                "models": ["gpt-5-mini", "gpt-5-nano"], "default": "gpt-5-mini"},
     "gemini": {"name": "Google Gemini", "secret": "gemini_api_key",

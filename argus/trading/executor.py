@@ -56,6 +56,8 @@ class ExecutionService:
         self.regime_provider = None
         #: "limit" = maker entry at the signal price (cheaper), "market"
         self.entry_order = "market"
+        #: symbol -> consecutive quiet 4h bars (volume-fade exit); set by engine
+        self.vol_fade_provider = None
         self.state = "running"
         self._pending_entry: dict[str, dict] = {}   # client_order_id -> decision detail
         self._closing: set[str] = set()             # close requested, awaiting fill
@@ -136,7 +138,9 @@ class ExecutionService:
                 continue
             sentiment = self.sentiment_provider(symbol) if self.sentiment_provider else None
             regime = self.regime_provider(symbol) if self.regime_provider else None
-            for act in evaluate_exit(pos, price, self.exit_params, sentiment, regime):
+            fade = self.vol_fade_provider(symbol) if self.vol_fade_provider else None
+            for act in evaluate_exit(pos, price, self.exit_params, sentiment, regime,
+                                     vol_fade=fade):
                 if act.kind == "close":
                     self._closing.add(pos.client_order_id)
                     self._db.audit("trade", f"{symbol}: adaptívny výstup - {act.reason}",
