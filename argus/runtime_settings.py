@@ -112,12 +112,31 @@ class RuntimeSettings:
         with self._db.session() as s:
             row = s.get(AppSetting, KEY)
             stored = dict(row.value) if row is not None else {}
+        migrated = self._migrate_v12(stored)
         for k, v in stored.items():
             if k in SCHEMA:
                 try:
                     self._values[k] = _coerce(k, v)
                 except (ValueError, TypeError):
                     log.warning("ignoring invalid stored setting %s=%r", k, v)
+        if migrated:
+            self._save()
+            self._db.audit("system",
+                           "Aktualizácia 1.2: burza prepnutá na Kraken Futures "
+                           "(Binance od 1. 7. 2026 nefunguje pre účty z EÚ); SHORT povolený.")
+
+    @staticmethod
+    def _migrate_v12(stored: dict) -> bool:
+        """Settings saved by 1.1 keep the old Binance spot venue; Binance no
+        longer serves EU accounts, so move them to Kraken Futures once."""
+        if not stored or "leverage" in stored:
+            return False                      # fresh install or already 1.2
+        changed = False
+        if stored.get("fee_venue") in ("binance", "binance_bnb"):
+            stored["fee_venue"] = "kraken_futures"
+            stored["allow_short"] = True
+            changed = True
+        return changed
 
     def _save(self) -> None:
         with self._db.session() as s:

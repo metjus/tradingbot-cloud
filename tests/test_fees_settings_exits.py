@@ -362,3 +362,35 @@ def test_pause_and_emergency_stop_survive_restart(tmp_path):
     e3.executor.command("start")
     e4 = Engine(Settings(**cfg))
     assert e4.executor.state == "running" and not e4.risk.halted
+
+
+def test_v11_settings_migrate_to_kraken_futures(tmp_path):
+    from argus.db.database import Database
+    from argus.db.schema import AppSetting
+    from argus.runtime_settings import KEY, RuntimeSettings
+    db = Database(tmp_path / "m.db")
+    with db.session() as s:   # settings as saved by 1.1 (no leverage key)
+        s.add(AppSetting(key=KEY, value={"fee_venue": "binance",
+                                         "allow_short": False,
+                                         "budget_eur": 500.0}))
+        s.commit()
+    rs = RuntimeSettings(db)
+    assert rs["fee_venue"] == "kraken_futures"
+    assert rs["allow_short"] is True
+    assert rs["budget_eur"] == 500.0          # user's own values survive
+    # the migration persisted: a reload does not repeat it
+    rs2 = RuntimeSettings(db)
+    assert rs2["fee_venue"] == "kraken_futures"
+    with db.session() as s:
+        stored = s.get(AppSetting, KEY).value
+    assert "leverage" in stored
+
+
+def test_v12_explicit_spot_choice_is_kept(tmp_path):
+    from argus.db.database import Database
+    from argus.runtime_settings import RuntimeSettings
+    db = Database(tmp_path / "m2.db")
+    rs = RuntimeSettings(db)
+    rs.update({"fee_venue": "kraken"})        # deliberate spot choice on 1.2
+    rs2 = RuntimeSettings(db)
+    assert rs2["fee_venue"] == "kraken"
