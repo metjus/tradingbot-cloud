@@ -42,6 +42,9 @@ class RiskLimits:
     max_explore_positions: int = 2         # trial (exploration) positions at once
     max_explore_daily: int = 3             # trial entries per day (fee budget)
     max_explore_cost_share: float = 0.05   # trial: fees may eat at most 5 % of R
+    #: per-sleeve caps (open positions, entries per day, max fee share of R)
+    sleeve_caps: dict = field(default_factory=lambda: {
+        "ai": (2, 12, 0.15)})
 
     def effective_risk_pct(self) -> float:
         return min(self.risk_per_trade_pct, self.max_risk_per_trade_pct)
@@ -59,6 +62,8 @@ class AccountState:
     open_short: int = 0
     explore_positions: int = 0   # open trial positions (not in the caps above)
     explore_today: int = 0
+    sleeve_open: dict = field(default_factory=dict)    # sleeve -> open positions
+    sleeve_today: dict = field(default_factory=dict)   # sleeve -> entries today
 
     @property
     def daily_pl_pct(self) -> float:
@@ -147,16 +152,27 @@ class RiskSupervisor:
         if signal.exploration:
             # trial positions have their own small caps and must not crowd
             # out the validated strategy
-            if account.explore_positions >= L.max_explore_positions:
-                vetoes.append(f"skúšobný režim: max. {L.max_explore_positions} pozície naraz")
-            if account.explore_today >= L.max_explore_daily:
-                vetoes.append(f"skúšobný režim: max. {L.max_explore_daily} vstupy za deň "
-                              f"(strop na poplatky)")
+            sleeve = signal.sleeve or "explore"
+            if sleeve == "explore":
+                max_open, max_day, max_cost = (L.max_explore_positions, L.max_explore_daily,
+                                               L.max_explore_cost_share)
+                n_open = account.sleeve_open.get(sleeve, account.explore_positions)
+                n_day = account.sleeve_today.get(sleeve, account.explore_today)
+                label = "skúšobný režim"
+            else:
+                max_open, max_day, max_cost = L.sleeve_caps.get(sleeve, (1, 3, 0.05))
+                n_open = account.sleeve_open.get(sleeve, 0)
+                n_day = account.sleeve_today.get(sleeve, 0)
+                label = "AI trader" if sleeve == "ai" else sleeve
+            if n_open >= max_open:
+                vetoes.append(f"{label}: max. {max_open} pozície naraz")
+            if n_day >= max_day:
+                vetoes.append(f"{label}: max. {max_day} vstupov za deň (strop na poplatky)")
             cost_share = signal.entry * L.round_trip_cost_pct / 100.0 / signal.risk_per_unit \
                 if signal.risk_per_unit > 0 else 1.0
-            if cost_share > L.max_explore_cost_share:
-                vetoes.append(f"skúšobný režim: poplatky by zjedli {cost_share * 100:.0f} % "
-                              f"rizika (limit {L.max_explore_cost_share * 100:.0f} %)")
+            if cost_share > max_cost:
+                vetoes.append(f"{label}: poplatky by zjedli {cost_share * 100:.0f} % "
+                              f"rizika (limit {max_cost * 100:.0f} %)")
         else:
             if account.open_positions >= L.max_open_positions:
                 vetoes.append(f"max. počet otvorených pozícií ({account.open_positions})")

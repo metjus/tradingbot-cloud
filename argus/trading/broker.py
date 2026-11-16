@@ -319,8 +319,11 @@ class PaperBroker(BrokerAdapter):
     # --- internals ----------------------------------------------------------
     def _fill_exit(self, pos: BrokerPosition, price: float, kind: str, ts: float) -> None:
         self._positions.pop(pos.client_order_id, None)
-        # accrued funding is settled with the exit, as part of the exit fee
-        fee = price * pos.quantity * self.fee_pct / 100.0 + pos.funding_accrued
+        # a take-profit is a resting limit order -> maker fee; stops, manual
+        # and adaptive closes are market orders -> taker fee. Accrued funding
+        # is settled with the exit, as part of the exit fee.
+        rate = self.maker_fee_pct if kind == "take_profit" else self.fee_pct
+        fee = price * pos.quantity * rate / 100.0 + pos.funding_accrued
         exit_dir = "SELL" if pos.direction == "LONG" else "BUY"
         if self.on_fill:
             self.on_fill(Fill(pos.client_order_id, pos.symbol, exit_dir,

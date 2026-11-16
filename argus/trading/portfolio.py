@@ -25,6 +25,11 @@ def _explore_names() -> set[str]:
     return EXPLORATION_NAMES
 
 
+def _sleeve_of(strategy: str) -> str | None:
+    from ..strategy.futures import SLEEVE_OF
+    return SLEEVE_OF.get(strategy)
+
+
 @dataclass(slots=True)
 class OpenPosition:
     trade_id: int
@@ -92,6 +97,7 @@ class Portfolio:
     day_start_equity: float = 0.0
     trades_today: int = 0
     explore_today: int = 0
+    sleeve_today: dict = field(default_factory=dict)
     _day: int = -1
     positions: dict[str, OpenPosition] = field(default_factory=dict)
 
@@ -135,6 +141,7 @@ class Portfolio:
             self.day_start_equity = self.equity
             self.trades_today = 0
             self.explore_today = 0
+            self.sleeve_today = {}
 
     # --- lifecycle ------------------------------------------------------------
     def record_entry(self, client_order_id: str, symbol: str, direction: str,
@@ -164,8 +171,11 @@ class Portfolio:
                            margin=margin, liq_price=liq_price)
         self.positions[client_order_id] = pos
         self.trades_today += 1
-        if strategy in _explore_names():
-            self.explore_today += 1
+        sl = _sleeve_of(strategy)
+        if sl is not None:
+            self.sleeve_today[sl] = self.sleeve_today.get(sl, 0) + 1
+            if sl == "explore":
+                self.explore_today += 1
         return pos
 
     def record_exit(self, client_order_id: str, price: float, fee: float,
@@ -210,15 +220,27 @@ class Portfolio:
                             open_notional=self.invested_total(),
                             open_long=sum(1 for p in main if p.direction == "LONG"),
                             open_short=sum(1 for p in main if p.direction == "SHORT"),
-                            explore_positions=len(self.positions) - len(main),
-                            explore_today=self.explore_today)
+                            explore_positions=sum(1 for p in self.positions.values()
+                                                  if _sleeve_of(p.strategy) == "explore"),
+                            explore_today=self.explore_today,
+                            sleeve_open=self._sleeve_open(),
+                            sleeve_today=dict(self.sleeve_today))
+
+    def _sleeve_open(self) -> dict:
+        out: dict = {}
+        for p in self.positions.values():
+            sl = _sleeve_of(p.strategy)
+            if sl is not None:
+                out[sl] = out.get(sl, 0) + 1
+        return out
 
     def invested_total(self) -> float:
         return sum(p.invested for p in self.positions.values())
 
-    def explore_stats(self) -> dict:
-        """Result of the trial (exploration) sleeve, NET of fees."""
-        names = _explore_names()
+    def explore_stats(self, sleeve: str = "explore") -> dict:
+        """Result of one trial sleeve, NET of fees."""
+        from ..strategy.futures import sleeve_names
+        names = sleeve_names(sleeve)
         with self.db.session() as s:
             rows = s.execute(select(Trade.pl, Trade.fees).where(
                 Trade.status == "closed", Trade.mode == self.mode,
@@ -231,7 +253,7 @@ class Portfolio:
                 "fees": round(fees, 2), "gross_pl": round(sum(pls) + fees, 2),
                 "profit_factor": round(pos / neg, 2) if neg > 0 else (None if not pos else 99.0),
                 "open": sum(1 for p in self.positions.values() if p.strategy in names),
-                "today": self.explore_today}
+                "today": self.sleeve_today.get(sleeve, 0)}
 
     def stats(self) -> dict:
         """Win rate / profit factor / max drawdown from closed trades."""

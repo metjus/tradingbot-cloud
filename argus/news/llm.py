@@ -61,12 +61,14 @@ PRICES = {
 PROVIDERS = {
     "claude": {"name": "Anthropic Claude", "secret": "anthropic_api_key",
                "models": ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"],
-               "default": "claude-haiku-5-5"},
+               "default": "claude-haiku-5-5", "trader_default": "claude-sonnet-5-5"},
     "openai": {"name": "OpenAI GPT", "secret": "openai_api_key",
-               "models": ["gpt-5-mini", "gpt-5-nano"], "default": "gpt-5-mini"},
+               "models": ["gpt-5-mini", "gpt-5-nano"], "default": "gpt-5-mini",
+               "trader_default": "gpt-5-mini"},
     "gemini": {"name": "Google Gemini", "secret": "gemini_api_key",
                "models": ["gemini-flash-lite-latest", "gemini-2.5-flash-lite"],
-               "default": "gemini-flash-lite-latest"},
+               "default": "gemini-flash-lite-latest",
+               "trader_default": "gemini-2.5-flash-lite"},
 }
 
 # typical call: ~700 input + ~250 output (incl. reasoning) tokens
@@ -153,6 +155,14 @@ class LLMRouter:
                 for k, v in PROVIDERS.items()},
         }
 
+    def trader_model(self, override: str = "") -> str | None:
+        """Model for trading decisions: the explicit setting, else the
+        provider's stronger default (decisions matter more than news tags)."""
+        info = PROVIDERS.get(self._runtime["llm_provider"])
+        if info is None:
+            return None
+        return (override or "").strip() or info.get("trader_default") or info["default"]
+
     def _model(self) -> str | None:
         info = PROVIDERS.get(self._runtime["llm_provider"])
         if info is None:
@@ -160,64 +170,85 @@ class LLMRouter:
         m = (self._runtime["llm_model"] or "").strip()
         return m or info["default"]
 
-    # --- main entry -------------------------------------------------------
-    async def analyze(self, title: str, summary: str, instruments: list[str]) -> dict | None:
+    def available(self) -> tuple[bool, str]:
+        """(ready, reason) - provider chosen, key stored, budget left."""
         self._roll()
-        provider = self._runtime["llm_provider"]
-        info = PROVIDERS.get(provider)
+        info = PROVIDERS.get(self._runtime["llm_provider"])
         if info is None:
-            return None
-        key = self._secrets.get(info["secret"])
-        if not key:
-            return None
+            return False, "nie je vybraný AI poskytovateľ"
+        if not self._secrets.get(info["secret"]):
+            return False, "chýba API kľúč"
         if self.usage.usd >= self._runtime["llm_daily_budget_usd"]:
+            return False, "denný rozpočet na AI vyčerpaný"
+        return True, ""
+
+    async def structured(self, system: str, schema: dict, prompt: str,
+                         name: str = "result", model: str | None = None,
+                         effort: str = "low", max_tokens: int = 2000) -> dict | None:
+        """One JSON-schema call to the active provider. None on any failure
+        (missing key, budget, error, refusal) - callers must cope."""
+        ok, _ = self.available()
+        if not ok:
             return None
-        model = self._model()
-        prompt = _user_prompt(title, summary, instruments)
+        provider = self._runtime["llm_provider"]
+        key = self._secrets.get(PROVIDERS[provider]["secret"])
+        model = model or self._model()
         try:
             if provider == "claude":
-                data, tin, tout = await self._claude(key, model, prompt)
+                data, tin, tout = await self._claude(key, model, prompt, system, schema,
+                                                     effort, max_tokens)
             elif provider == "openai":
-                data, tin, tout = await self._openai(key, model, prompt)
+                data, tin, tout = await self._openai(key, model, prompt, system, schema,
+                                                     name, max_tokens)
             else:
-                data, tin, tout = await self._gemini(key, model, prompt)
+                data, tin, tout = await self._gemini(key, model, prompt, system, max_tokens)
             self._record(model, tin, tout)
-            if data is None:
-                return None
-            return {**_clamp(data), "provider": provider, "model": model}
+            return data
         except Exception as exc:
             self.usage.errors += 1
             self.usage.last_error = f"{type(exc).__name__}: {str(exc)[:200]}"
-            log.warning("LLM analysis failed (lexicon fallback): %s", exc)
+            log.warning("LLM call failed: %s", exc)
             return None
 
+    # --- news analysis ----------------------------------------------------
+    async def analyze(self, title: str, summary: str, instruments: list[str]) -> dict | None:
+        data = await self.structured(SYSTEM, SCHEMA, _user_prompt(title, summary, instruments),
+                                     name="news_sentiment")
+        if data is None:
+            return None
+        return {**_clamp(data), "provider": self._runtime["llm_provider"],
+                "model": self._model()}
+
     # --- providers --------------------------------------------------------
-    async def _claude(self, key: str, model: str, prompt: str):
+    async def _claude(self, key: str, model: str, prompt: str, system: str = SYSTEM,
+                      schema: dict = SCHEMA, effort: str = "low", max_tokens: int = 2000):
         import anthropic
         if self._anthropic is None or self._anthropic_key != key:
-            self._anthropic = anthropic.AsyncAnthropic(api_key=key, max_retries=1, timeout=30.0)
+            self._anthropic = anthropic.AsyncAnthropic(api_key=key, max_retries=1, timeout=60.0)
             self._anthropic_key = key
         resp = await self._anthropic.messages.create(
-            model=model, max_tokens=2000, system=SYSTEM,
+            model=model, max_tokens=max_tokens, system=system,
             messages=[{"role": "user", "content": prompt}],
-            output_config={"effort": "low",
-                           "format": {"type": "json_schema", "schema": SCHEMA}})
+            output_config={"effort": effort,
+                           "format": {"type": "json_schema", "schema": schema}})
         tin, tout = resp.usage.input_tokens, resp.usage.output_tokens
         if resp.stop_reason == "refusal":
             return None, tin, tout
         text = next((b.text for b in resp.content if b.type == "text"), "")
         return json.loads(text), tin, tout
 
-    async def _openai(self, key: str, model: str, prompt: str):
+    async def _openai(self, key: str, model: str, prompt: str, system: str = SYSTEM,
+                      schema: dict = SCHEMA, name: str = "news_sentiment",
+                      max_tokens: int = 2000):
         r = await self._client.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {key}"},
             json={"model": model,
-                  "messages": [{"role": "system", "content": SYSTEM},
+                  "messages": [{"role": "system", "content": system},
                                {"role": "user", "content": prompt}],
                   "response_format": {"type": "json_schema", "json_schema": {
-                      "name": "news_sentiment", "strict": True, "schema": SCHEMA}},
-                  "max_completion_tokens": 2000})
+                      "name": name, "strict": True, "schema": schema}},
+                  "max_completion_tokens": max_tokens})
         r.raise_for_status()
         d = r.json()
         u = d.get("usage") or {}
@@ -225,14 +256,15 @@ class LLMRouter:
         return (json.loads(text) if text else None,
                 int(u.get("prompt_tokens", 0)), int(u.get("completion_tokens", 0)))
 
-    async def _gemini(self, key: str, model: str, prompt: str):
+    async def _gemini(self, key: str, model: str, prompt: str, system: str = SYSTEM,
+                      max_tokens: int = 2000):
         r = await self._client.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             headers={"x-goog-api-key": key},
-            json={"systemInstruction": {"parts": [{"text": SYSTEM}]},
+            json={"systemInstruction": {"parts": [{"text": system}]},
                   "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                   "generationConfig": {"responseMimeType": "application/json",
-                                       "maxOutputTokens": 2000}})
+                                       "maxOutputTokens": max_tokens}})
         r.raise_for_status()
         d = r.json()
         u = d.get("usageMetadata") or {}

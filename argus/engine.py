@@ -57,6 +57,7 @@ class Engine:
             else list(self.runtime["symbols"]))
         self.ticker: KrakenTicker | KrakenFuturesTicker | None = None
         self._explore_off_reason: str | None = None
+        self._sleeve_off_reason: dict[str, str] = {}
         self.universe: list[dict] = []     # auto-selected coins (futures)
         self.last_tick: dict[str, Tick] = {}
         self.forming_m1: dict[str, Candle] = {}
@@ -149,6 +150,17 @@ class Engine:
             self.news.tracker.score_for if self.news is not None else None)
         self.executor.regime_provider = self.analysis.last_regime.get
         self.executor.vol_fade_provider = self.analysis.last_vol_fade.get
+
+        from .ai_trader import AITrader
+        self.ai_trader = AITrader(
+            self.db, self.bus, self.health, self.llm, self.runtime, self.risk,
+            self.executor, self.portfolio,
+            price_provider=lambda sym: (self.last_tick[sym].price
+                                        if sym in self.last_tick else None),
+            funding_provider=lambda sym: ((self.ticker.info.get(sym) or {}).get("funding_rate_h")
+                                          if self.ticker is not None
+                                          and hasattr(self.ticker, "info") else None),
+            account_provider=self.portfolio.account_state)
 
         self.apply_settings()
         self.runtime.on_change(lambda _changed: self.apply_settings())
@@ -255,39 +267,51 @@ class Engine:
     EXPLORE_MIN_TRADES = 20
     EXPLORE_MAX_LOSS_PCT = 1.0      # of the bot budget, net of fees
 
-    def explore_status(self) -> dict:
-        st = self.portfolio.explore_stats()
+    SLEEVE_SETTING = {"explore": "explore_enabled", "ai": "ai_trader_enabled"}
+    SLEEVE_LABEL = {"explore": "Skúšobný režim", "ai": "AI trader"}
+
+    def explore_status(self, sleeve: str = "explore") -> dict:
+        st = self.portfolio.explore_stats(sleeve)
         rs = self.runtime
-        st.update({"enabled": rs["explore_enabled"],
-                   "risk_pct": round(rs["risk_per_trade_pct"] * rs["explore_risk_scale"], 3),
+        scale = rs["explore_risk_scale"] if sleeve == "explore" else rs["ai_risk_scale"]
+        if sleeve == "explore":
+            max_open, max_daily = (self.risk.limits.max_explore_positions,
+                                   self.risk.limits.max_explore_daily)
+        else:
+            max_open, max_daily, _ = self.risk.limits.sleeve_caps[sleeve]
+        st.update({"enabled": rs[self.SLEEVE_SETTING[sleeve]],
+                   "risk_pct": round(rs["risk_per_trade_pct"] * scale, 3),
                    "min_trades": self.EXPLORE_MIN_TRADES,
                    "max_loss_eur": round(rs["budget_eur"] * self.EXPLORE_MAX_LOSS_PCT / 100.0, 2),
-                   "max_daily": self.risk.limits.max_explore_daily,
-                   "max_open": self.risk.limits.max_explore_positions,
-                   "disabled_reason": self._explore_off_reason})
+                   "max_daily": max_daily, "max_open": max_open,
+                   "disabled_reason": self._sleeve_off_reason.get(sleeve)})
         return st
 
     def _check_explore(self) -> None:
-        """Switch the trial strategy off once it demonstrably loses AFTER
-        fees: profit factor < 1 after 20 trades, or a net loss beyond 1 %
-        of the budget at any point."""
-        if not self.runtime["explore_enabled"]:
-            return
-        st = self.portfolio.explore_stats()
-        max_loss = self.runtime["budget_eur"] * self.EXPLORE_MAX_LOSS_PCT / 100.0
-        reason = None
-        if st["trades"] >= self.EXPLORE_MIN_TRADES and (st["profit_factor"] or 0) < 1.0:
-            reason = (f"po {st['trades']} obchodoch prerába po poplatkoch "
-                      f"(PF {st['profit_factor']}, čistý výsledok {st['net_pl']:+.2f} €)")
-        elif st["net_pl"] <= -max_loss:
-            reason = (f"čistá strata {st['net_pl']:.2f} € prekročila limit "
-                      f"{max_loss:.2f} € (1 % rozpočtu)")
-        if reason:
-            self._explore_off_reason = reason
-            self.runtime.update({"explore_enabled": False})
-            msg = f"Skúšobný režim vypnutý: {reason}. Hlavná stratégia beží ďalej."
-            self.db.audit("risk", msg, "warning", st)
-            self.bus.publish("system_alert", {"category": "bot_state", "message": msg})
+        """Switch a trial account off once it demonstrably loses AFTER fees:
+        profit factor < 1 after 20 trades, or a net loss beyond 1 % of the
+        budget at any point. Checked for every trial sleeve."""
+        for sleeve, key in self.SLEEVE_SETTING.items():
+            if not self.runtime[key]:
+                continue
+            st = self.portfolio.explore_stats(sleeve)
+            max_loss = self.runtime["budget_eur"] * self.EXPLORE_MAX_LOSS_PCT / 100.0
+            reason = None
+            if st["trades"] >= self.EXPLORE_MIN_TRADES and (st["profit_factor"] or 0) < 1.0:
+                reason = (f"po {st['trades']} obchodoch prerába po poplatkoch "
+                          f"(PF {st['profit_factor']}, čistý výsledok {st['net_pl']:+.2f} €)")
+            elif st["net_pl"] <= -max_loss:
+                reason = (f"čistá strata {st['net_pl']:.2f} € prekročila limit "
+                          f"{max_loss:.2f} € (1 % rozpočtu)")
+            if reason:
+                self._sleeve_off_reason[sleeve] = reason
+                if sleeve == "explore":
+                    self._explore_off_reason = reason
+                self.runtime.update({key: False})
+                msg = (f"{self.SLEEVE_LABEL[sleeve]} vypnutý: {reason}. "
+                       f"Hlavná stratégia beží ďalej.")
+                self.db.audit("risk", msg, "warning", st)
+                self.bus.publish("system_alert", {"category": "bot_state", "message": msg})
 
     async def _explore_guard_loop(self, q) -> None:
         while True:
@@ -498,7 +522,7 @@ class Engine:
         if venue(self.runtime["fee_venue"]).futures and self.crypto_symbols:
             from .marketdata.kraken_futures import fetch_history
             for sym in self.crypto_symbols:
-                for days, res in ((50, "1h"), (90, "4h")):
+                for days, res in ((4, "15m"), (50, "1h"), (90, "4h")):
                     try:
                         bars = await fetch_history(sym, days, res)
                         if bars:
@@ -579,6 +603,7 @@ class Engine:
 
         self.analysis.start()
         self.executor.start()
+        self.ai_trader.start()
         if hasattr(self.broker, "start"):
             self.broker.start()
         self.ml_scheduler.start()
@@ -620,6 +645,7 @@ class Engine:
             explore_task.cancel()
             self.analysis.stop()
             self.executor.stop()
+            self.ai_trader.stop()
             self.ml_scheduler.stop()
             if hasattr(self.broker, "stop"):
                 await self.broker.stop()

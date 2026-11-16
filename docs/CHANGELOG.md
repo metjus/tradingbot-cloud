@@ -1,5 +1,29 @@
 # Zoznam zmien
 
+## 1.2.x - AI trader
+
+- **AI trader**: jazykový model (Claude / GPT / Gemini podľa nastavenia)
+  obchoduje sám ako skalper - každých 30 minút si prečíta 15-min graf
+  (12 h sviečok, trend 1h/4h, RSI, ATR, funding) a rozhodne, kam dať
+  limitný príkaz (long pod cenou / short nad cenou), alebo nič. Pri
+  ďalšom rozhodnutí starý príkaz zruší a dá nový. Otvorenú pozíciu každých
+  30 minút zváži: držať alebo zavrieť.
+  - model navrhuje iba ceny; veľkosť, páku a limity určuje deterministický
+    risk supervisor; navrhnuté ceny musia prejsť pevnými hranicami (limit
+    max. 3 % od ceny, stop 0,25-4 %, zisk/riziko po poplatkoch aspoň 1,5)
+  - vlastný účet: štvrtina bežného rizika, max. 2 pozície a 12 vstupov
+    denne, poplatky max. 15 % rizika, vstup aj take-profit ako limit
+  - automaticky sa vypne, ak po poplatkoch prerába (rovnako ako skúšobný
+    režim) a pošle notifikáciu
+  - dostáva iba čísla (ceny, indikátory), žiadny externý text
+  - potrebuje AI kľúč (Settings → AI); predvolený model na obchodovanie
+    je silnejší (Claude Sonnet, ~0,45 $/deň pri BTC)
+- Prečo AI a nie pravidlo: mechanická verzia tejto metódy (limit o kus
+  lepšie po formujúcom sa prieraze/poklese) na 2 rokoch dát nezarobila
+  v ani jednom z 84 variantov - rozhodujúci je úsudok, kedy a kde.
+- Take-profit sa v paper režime účtuje ako maker poplatok (je to limitný
+  príkaz); stop-loss a ručné zatvorenie ako taker.
+
 ## 1.2.x - skúšobný režim (obchody aj vo „vákuu")
 
 - **Skúšobný režim**: kým hlavná stratégia čaká na obrat trendu, bot môže

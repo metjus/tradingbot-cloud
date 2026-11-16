@@ -210,15 +210,38 @@ class ExecutionService:
             "liq_price": risk.get("liq_price"),
             "entry_reason": "; ".join(sig.get("reasons", []))[:500],
         }
-        tf_s = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600,
-                "4h": 14400}.get(sig.get("timeframe"), 14400)
+        tf_s = float(sig.get("expire_s") or 0) or {
+            "1m": 60, "5m": 300, "15m": 900, "1h": 3600,
+            "4h": 14400}.get(sig.get("timeframe"), 14400)
         self.broker.submit_bracket(BracketOrder(
             client_order_id=coid, symbol=symbol, direction=sig["direction"],
             quantity=risk["quantity"], stop_loss=sig["stop_loss"],
             take_profit=sig["take_profit"], strategy=sig["strategy"],
             leverage=risk.get("leverage", 1.0),
-            entry=self.entry_order, limit_price=float(sig.get("entry") or 0.0),
+            # trial sleeves always rest as limits (the AI's level IS the trade)
+            entry="limit" if sig.get("sleeve") == "ai" else self.entry_order,
+            limit_price=float(sig.get("entry") or 0.0),
             expire_s=float(tf_s)))
+
+    def cancel_resting(self, symbol: str, strategy: str) -> int:
+        """Cancel resting (unfilled) limit entries of one strategy on one
+        symbol - used when the AI trader re-places its level."""
+        n = 0
+        for coid, detail in list(self._pending_entry.items()):
+            sig = (((detail.get("decision") or {}).get("best") or {}).get("signal") or {})
+            if sig.get("symbol") == symbol and detail.get("strategy") == strategy \
+                    and hasattr(self.broker, "cancel_pending") \
+                    and self.broker.cancel_pending(coid):
+                self._pending_entry.pop(coid, None)
+                n += 1
+        return n
+
+    def has_resting(self, symbol: str, strategy: str) -> bool:
+        for detail in self._pending_entry.values():
+            sig = (((detail.get("decision") or {}).get("best") or {}).get("signal") or {})
+            if sig.get("symbol") == symbol and detail.get("strategy") == strategy:
+                return True
+        return False
 
     def _on_entry_cancel(self, client_order_id: str, reason: str) -> None:
         detail = self._pending_entry.pop(client_order_id, None)

@@ -39,6 +39,10 @@ class Signal:
     #: exploration (trial) signals trade at a fraction of the normal risk
     exploration: bool = False
     risk_scale: float = 1.0
+    #: which trial account it belongs to ("explore", "ai"); "" = validated
+    sleeve: str = ""
+    #: limit entry validity in seconds (0 = one signal bar)
+    expire_s: float = 0.0
 
     @property
     def risk_per_unit(self) -> float:
@@ -66,6 +70,7 @@ class Signal:
             "confidence": round(self.confidence, 3), "rr": round(self.rr, 2),
             "timeframe": self.timeframe.value, "reasons": self.reasons,
             "exploration": self.exploration, "risk_scale": self.risk_scale,
+            "sleeve": self.sleeve, "expire_s": self.expire_s,
         }
 
 

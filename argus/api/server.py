@@ -394,6 +394,13 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
             return {"enabled": False, "trades": 0}
         return engine.explore_status()
 
+    @app.get("/api/ai")
+    def api_ai() -> dict:
+        """AI trader: status, recent decisions with reasons, trial account."""
+        if engine is None:
+            return {"enabled": False, "decisions": []}
+        return {**engine.ai_trader.status(), "account": engine.explore_status("ai")}
+
     @app.get("/api/watch")
     def api_watch() -> dict:
         """What the bot sees per coin right now (watchlist)."""

@@ -63,6 +63,11 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     # auto-off when it loses after fees
     "explore_enabled": (True, bool, None, None),
     "explore_risk_scale": (0.1, float, 0.05, 0.3),
+    # AI trader: an LLM decides limit levels on the 15m chart every 30 min
+    "ai_trader_enabled": (True, bool, None, None),
+    "ai_symbols": (["BTC/USD"], list, None, None),
+    "ai_risk_scale": (0.25, float, 0.05, 0.5),
+    "ai_model": ("", str, None, None),
     "volume_exit_min_r": (1.0, float, 0.3, 5.0),
     # instruments (applied on next engine start)
     "symbols": (DEFAULT_SYMBOLS, list, None, None),

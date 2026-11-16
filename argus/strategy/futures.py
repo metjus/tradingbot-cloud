@@ -190,9 +190,17 @@ class PullbackShort4h(_H4Strategy):
             "4h downtrend (EMA21 < EMA50, pod EMA200)",
             "odraz k 4h EMA21 odmietnutý červenou sviečkou", "BTC filter OK",
             "SKÚŠOBNÝ REŽIM: desatinové riziko"], timeframe=H4,
-            exploration=True, risk_scale=0.1)
+            exploration=True, risk_scale=0.1, sleeve="explore")
         return sig if sig.valid() else None
 
 
 EXPLORATION_STRATEGIES: list[Strategy] = [PullbackShort4h()]
-EXPLORATION_NAMES = {s.name for s in EXPLORATION_STRATEGIES}
+
+#: trial accounts: strategy name -> sleeve. Each sleeve has its own caps,
+#: its own result (net of fees) and its own automatic kill switch.
+SLEEVE_OF = {"pullback_short_4h": "explore", "ai_trader": "ai"}
+EXPLORATION_NAMES = set(SLEEVE_OF)
+
+
+def sleeve_names(sleeve: str) -> set[str]:
+    return {n for n, s in SLEEVE_OF.items() if s == sleeve}

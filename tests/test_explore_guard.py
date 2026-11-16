@@ -59,3 +59,14 @@ def test_validated_trades_do_not_count(tmp_path):
     e._check_explore()
     assert e.runtime["explore_enabled"] is True
     assert e.explore_status()["trades"] == 0
+
+
+def test_ai_account_has_its_own_kill_switch(tmp_path):
+    e = _engine(tmp_path)
+    _add_trades(e, [1.0, -1.5] * 10, strategy="ai_trader")    # PF 0.67
+    e._check_explore()
+    assert e.runtime["ai_trader_enabled"] is False
+    assert e.runtime["explore_enabled"] is True                 # untouched
+    st = e.explore_status("ai")
+    assert st["trades"] == 20 and "prerába" in st["disabled_reason"]
+    assert e.explore_status("explore")["trades"] == 0           # separate books
