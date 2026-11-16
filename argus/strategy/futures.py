@@ -144,4 +144,7 @@ class Donchian4h(_H4Strategy):
         return sig if sig.valid() else None
 
 
-FUTURES_STRATEGIES: list[Strategy] = [TrendRider4h(), Donchian4h()]
+#: Donchian4h is kept for research but NOT traded: with the full live stack
+#: (maker entries, volume exit, no TP cap) it measured IS PF 0.97 / OOS PF
+#: 1.03 - more trades, no edge, extra drawdown.
+FUTURES_STRATEGIES: list[Strategy] = [TrendRider4h()]

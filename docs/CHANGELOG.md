@@ -1,5 +1,21 @@
 # Zoznam zmien
 
+## 1.2.x - panel „Čo bot sleduje", rýchlejší štart
+
+- Nový panel **Čo bot sleduje** na dashboarde: pri každej minci 4h trend,
+  vzdialenosť EMA21 od EMA50 (čím menšia, tým bližšie signál), aký smer
+  by otvorilo najbližšie prekríženie a či ho filtre (EMA200, smer BTC)
+  pustia; čas uzavretia ďalšej 4h sviečky a počet vyhodnotení. Tichý bot
+  sa tak dá odlíšiť od pokazeného.
+- Okno a API naskočia hneď; výber mincí a sťahovanie histórie bežia na
+  pozadí (predtým sa čakalo desiatky sekúnd).
+- Viac mincí: automatický výber berie kontrakty od 2 mil. $ denného objemu
+  (predtým 5 mil.) - presne rozsah, na ktorom bola stratégia overená.
+- **donchian_4h sa už neobchoduje**: s plnou sadou výstupov má profit
+  factor ~1,0 (viac obchodov, žiadny edge, väčší prepad).
+- Opravy: história pri štarte sa už neanalyzuje naprázdno; 4h sviečka
+  z neúplného okna už neprepíše správnu sviečku z burzy.
+
 ## 1.2.x - objemový exit, výber AI modelu, lacnejšie maker vstupy
 
 - **Riziko na obchod predvolene 1 %** (predtým 0,5 %): zodpovedá zhruba

@@ -202,6 +202,11 @@ def test_trend_rider_fires_once_per_h4_bar_and_respects_btc_filter():
     assert not any(s and s.direction == "LONG" for s in blocked)
 
 
+def test_only_validated_futures_strategies_trade():
+    from argus.strategy.futures import FUTURES_STRATEGIES
+    assert [s.name for s in FUTURES_STRATEGIES] == ["trend_rider_4h"]
+
+
 def test_donchian_breakout_signal_valid():
     bars = h4_series(230, trend=0.2)
     last = bars[-1]
@@ -284,3 +289,19 @@ def test_volume_exit_locks_profit_only_in_profit():
     P.volume_exit = False
     assert not any(a.kind == "close" for a in
                    evaluate_exit(pos(), 102.5, P, vol_fade=4))
+
+
+def test_watch_state_reports_trend_and_blocking_filters():
+    from argus.analysis.service import AnalysisService
+    from argus.decision import DecisionResult
+    from argus.analysis.regime import Regime
+    bars = h4_series(230, trend=-0.4, start=300.0)        # steady downtrend
+    fs = compute_features(bars)
+    res = DecisionResult(symbol="SOL/USD", regime=Regime.UNCERTAIN, verdict="no_signal")
+    w = AnalysisService._watch_state("SOL/USD", bars[-1].ts + 14400, {H4: bars},
+                                     {H4: fs}, -1, res)
+    assert w["trend"] == "down" and w["ema_gap_pct"] < 0
+    assert w["above_ema200"] is False
+    # the next cross would be a LONG, blocked below EMA200 / BTC down
+    assert w["next_signal"] == "LONG" and w["next_signal_allowed"] is False
+    assert w["next_h4_close"] % 14400 == 0

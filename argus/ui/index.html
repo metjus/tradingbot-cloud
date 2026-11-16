@@ -148,6 +148,11 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
         </div>
         <div class="col-side">
           <div class="card">
+            <div class="label" style="margin-bottom:6px">Čo bot sleduje</div>
+            <div id="dash-watch-head" class="small" style="margin-bottom:6px">—</div>
+            <div id="dash-watch" class="small">—</div>
+          </div>
+          <div class="card">
             <div class="label" style="margin-bottom:8px">Trh · 24h objem</div>
             <div id="dash-market" class="small">—</div>
           </div>
@@ -548,6 +553,47 @@ function onTick(tk){
   el.textContent = tk.price;
   el.className = "mono " + (tk.price > prev ? "profit" : (tk.price < prev ? "loss" : ""));
   el.dataset.p = tk.price;
+}
+
+// --- watchlist: what the bot sees per coin, so a quiet bot is visibly alive ---
+async function refreshWatch(){
+  let w;
+  try { w = await api("/api/watch"); } catch(e){ return; }
+  const coins = w.coins || [];
+  const head = $("dash-watch-head"), el = $("dash-watch");
+  if (!head || !el) return;
+  if (!coins.length){
+    head.textContent = "Načítavam dáta, prvé vyhodnotenie príde po uzavretí 5-min sviečky.";
+    el.innerHTML = ""; return;
+  }
+  const next = coins[0].next_h4_close;
+  const mins = Math.max(0, Math.round((next * 1000 - Date.now()) / 60000));
+  const hhmm = new Date(next * 1000).toLocaleTimeString("sk-SK", {hour: "2-digit", minute: "2-digit"});
+  head.innerHTML = `Bot vstupuje pri prekrížení trendu na <b>4h grafe</b>. Ďalšia 4h sviečka sa uzavrie
+    o <b class="mono">${hhmm}</b> (o ${mins >= 60 ? Math.floor(mins/60) + " h " : ""}${mins % 60} min).
+    <span style="color:var(--muted)">Vyhodnotení: ${w.evaluations}. Pauzy bez obchodu niekoľko hodín až dní sú normálne.</span>`;
+  el.innerHTML = coins.map(c => {
+    const base = esc(c.symbol.split("/")[0]);
+    if (c.ema_gap_pct == null)
+      return `<div class="list-item"><b style="min-width:52px">${base}</b><span class="small">zbieram históriu (${c.bars_h4}/60 sviečok)</span></div>`;
+    const up = c.trend === "up";
+    const gap = Math.abs(c.ema_gap_pct);
+    const near = c.atr_pct ? gap < c.atr_pct * 0.5 : gap < 0.5;
+    const why = !c.next_signal_allowed
+      ? (c.next_signal === "LONG"
+          ? (c.above_ema200 === false ? "pod 4h EMA200" : "BTC v poklese")
+          : (c.above_ema200 ? "nad 4h EMA200" : "BTC v raste"))
+      : "";
+    return `<div class="list-item" style="gap:8px;flex-wrap:nowrap;white-space:nowrap">
+      <b style="min-width:52px">${base}</b>
+      <span class="${up ? "profit" : "loss"}" title="EMA21 voči EMA50 na 4h">${up ? "trend hore" : "trend dole"}</span>
+      <span class="mono small" title="vzdialenosť EMA21 od EMA50">${gap.toFixed(2)}%</span>
+      <span class="spacer"></span>
+      ${c.next_signal_allowed
+        ? `<span class="${near ? "warn" : "small"}" title="smer, ktorý by otvorilo najbližšie prekríženie">${near ? "blízko " : ""}${c.next_signal}</span>`
+        : `<span class="small" style="color:var(--muted)" title="filter by ďalší signál zablokoval">${c.next_signal} blok.: ${why}</span>`}
+    </div>`;
+  }).join("");
 }
 
 // --- market info (24h volume in USD + coin, funding) ---
@@ -1322,6 +1368,8 @@ setInterval(refresh, 5000);
 setInterval(refreshSlow, 15000);
 refreshMarket();
 setInterval(refreshMarket, 10000);
+refreshWatch();
+setInterval(refreshWatch, 30000);
 connectWs();
 </script>
 </body>

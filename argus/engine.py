@@ -372,7 +372,10 @@ class Engine:
 
     def _on_closed_candle(self, bar: Candle) -> None:
         self.db.upsert_candles([bar])
-        self.bus.publish(CANDLE, bar)
+        # history replayed at startup only rebuilds the candles; analysing
+        # hours-old bars would just burn CPU and delay the live feed
+        if not getattr(self, "_backfilling", False):
+            self.bus.publish(CANDLE, bar)
 
     # --- lifecycle ----------------------------------------------------------
     async def _auto_universe(self) -> None:
@@ -382,6 +385,8 @@ class Engine:
         rs = self.runtime
         if not venue(rs["fee_venue"]).futures or not rs["auto_symbols"]:
             return
+        if "crypto_symbols" in self.settings.model_fields_set:
+            return                     # explicit config (env/.env/tests) wins
         try:
             uni = await fetch_universe(limit=rs["max_symbols"])
         except Exception as exc:
@@ -431,6 +436,13 @@ class Engine:
                 self.db.audit("system", "Alpaca keys missing - stock data disabled", "warning")
 
     async def _backfill(self) -> None:
+        self._backfilling = True
+        try:
+            await self._backfill_inner()
+        finally:
+            self._backfilling = False
+
+    async def _backfill_inner(self) -> None:
         # futures: pull 1h/4h history from the charts API so the 4h EMA200
         # and the analysis windows exist right from the first start
         if venue(self.runtime["fee_venue"]).futures and self.crypto_symbols:
@@ -447,6 +459,17 @@ class Engine:
             for sym in p.symbols:
                 try:
                     bars = await p.backfill(sym, minutes=720)
+                    # start the aggregator on a 4h boundary: a bucket built
+                    # from a partial window would overwrite the complete
+                    # API bar (wrong open, too little volume)
+                    if bars:
+                        first = Timeframe.H4.align(bars[0].ts)
+                        if first < bars[0].ts:
+                            first += Timeframe.H4.seconds
+                        for b in bars:
+                            if b.ts < first:
+                                self.db.upsert_candles([b])
+                        bars = [b for b in bars if b.ts >= first]
                     for b in bars:
                         self.db.upsert_candles([b])
                         self.aggregator.add_m1(b)
@@ -464,6 +487,30 @@ class Engine:
                     self.aggregator.flush_before(sym, now)
             await asyncio.sleep(30)
 
+    async def _start_market_data(self) -> None:
+        try:
+            self.health.set_status("engine", Status.OK, "načítavam trhové dáta")
+            await self._auto_universe()
+            tracked = self.crypto_symbols + self.settings.stock_symbols
+            self.ml_scheduler._symbols = tracked or ["BTC/USD"]
+            self._build_providers()
+            if getattr(self, "_info", None) is not None:
+                self._info.update({k: v for k, v in self.info().items()
+                                   if k in ("provider", "symbols")})
+            await self._backfill()
+            for p in self.providers:
+                p.start()
+            if self.ticker is not None:
+                self.ticker.start()
+            self.health.set_status("engine", Status.OK, "running")
+            self.db.audit("data", f"Trhové dáta pripravené: {len(self.crypto_symbols)} mincí")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.exception("market data start failed: %s", exc)
+            self.health.set_status("engine", Status.DEGRADED, f"dáta: {exc}")
+            self.db.audit("data", f"Štart trhových dát zlyhal: {exc}", "error")
+
     def info(self) -> dict:
         return {
             "mode": self.settings.trading_mode,
@@ -480,13 +527,6 @@ class Engine:
         self.health.set_status("engine", Status.OK, "running")
         self.health.start()
 
-        await self._auto_universe()
-        self._build_providers()
-        await self._backfill()
-        for p in self.providers:
-            p.start()
-        if self.ticker is not None:
-            self.ticker.start()
         self.analysis.start()
         self.executor.start()
         if hasattr(self.broker, "start"):
@@ -499,6 +539,11 @@ class Engine:
         flush_task = asyncio.get_running_loop().create_task(self._flush_loop(), name="flush-loop")
 
         info = self.info()
+        self._info = info
+        # market data (coin selection, history download, live feeds) starts
+        # in the background so the window and API are up immediately
+        data_task = asyncio.get_running_loop().create_task(
+            self._start_market_data(), name="market-data-start")
         app = create_app(self.db, self.bus, self.health, info,
                          news=self.news, calendar=self.calendar,
                          executor=self.executor, portfolio=self.portfolio,
@@ -518,6 +563,7 @@ class Engine:
         finally:
             self.state = "stopping"
             flush_task.cancel()
+            data_task.cancel()
             self.analysis.stop()
             self.executor.stop()
             self.ml_scheduler.stop()

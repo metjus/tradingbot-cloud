@@ -50,6 +50,9 @@ class AnalysisService:
         #: consecutive closed 4h bars with volume under half its 20-bar
         #: average (feeds the volume-fade exit)
         self.last_vol_fade: dict[str, int] = {}
+        #: per-symbol "what the bot sees right now" for the watchlist UI
+        self.watch: dict[str, dict] = {}
+        self.evaluations = 0
         self._task: asyncio.Task | None = None
         health.register("analysis", stale_after=1800)
 
@@ -77,7 +80,10 @@ class AnalysisService:
                     if f5 is not None:
                         payload["features_m5"] = f5
                     self._bus.publish(DECISION_EVENT, payload)
-                self._health.heartbeat("analysis", Status.OK, "signal-only mode")
+                self.evaluations += 1
+                self._health.heartbeat("analysis", Status.OK,
+                                       f"{len(self.watch)} mincí sledovaných, "
+                                       f"{self.evaluations} vyhodnotení")
             except Exception as exc:
                 log.exception("analysis failed for %s: %s", bar.symbol, exc)
                 self._health.set_status("analysis", Status.DEGRADED, str(exc))
@@ -124,7 +130,43 @@ class AnalysisService:
         self.last_vol_fade[symbol] = self._vol_fade(candles.get(Timeframe.H4) or [])
         result = self._engine.evaluate(ctx, account)
         self.last_regime[symbol] = result.regime
+        self.watch[symbol] = self._watch_state(symbol, now_ts, candles, features,
+                                               ctx.extras.get("btc_trend"), result)
         return result
+
+    @staticmethod
+    def _watch_state(symbol, now_ts, candles, features, btc_trend, result) -> dict:
+        """Plain-language state of the 4h setup: trend, how close the EMA21/50
+        cross is, filters, and when the next 4h candle closes."""
+        from ..ta import indicators as ind
+        h4 = candles.get(Timeframe.H4) or []
+        f4 = features.get(Timeframe.H4)
+        out = {"symbol": symbol, "ts": now_ts, "verdict": result.verdict,
+               "next_h4_close": (now_ts // 14400 + 1) * 14400,
+               "bars_h4": len(h4), "btc_trend": btc_trend}
+        if len(h4) >= 60 and f4 is not None:
+            closes = [b.close for b in h4]
+            e21, e50 = ind.ema(closes, 21)[-1], ind.ema(closes, 50)[-1]
+            price = closes[-1]
+            if e21 and e50:
+                out["ema_gap_pct"] = round((e21 - e50) / price * 100.0, 3)
+                out["trend"] = "up" if e21 > e50 else "down"
+            if f4.ema200:
+                out["above_ema200"] = price >= f4.ema200
+            if f4.atr14:
+                out["atr_pct"] = round(f4.atr14 / price * 100.0, 2)
+            # which direction a fresh cross would be allowed to trade
+            want = "LONG" if out.get("trend") == "down" else "SHORT"
+            ok_ema200 = out.get("above_ema200") if want == "LONG" \
+                else (out.get("above_ema200") is False)
+            ok_btc = btc_trend is None or (btc_trend >= 0 if want == "LONG" else btc_trend <= 0)
+            out["next_signal"] = want
+            out["next_signal_allowed"] = bool(ok_ema200 and ok_btc)
+        if result.best is not None:
+            out["best"] = {"strategy": result.best.signal.strategy,
+                           "direction": result.best.signal.direction,
+                           "score": round(result.best.score, 1)}
+        return out
 
     @staticmethod
     def _vol_fade(bars, thr: float = 0.5, lookback: int = 20) -> int:

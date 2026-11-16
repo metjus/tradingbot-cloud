@@ -209,7 +209,7 @@ class KrakenFuturesTicker:
         await self._client.aclose()
 
 
-async def fetch_universe(min_volume_usd: float = 5_000_000.0,
+async def fetch_universe(min_volume_usd: float = 2_000_000.0,
                          limit: int = 12,
                          client: httpx.AsyncClient | None = None) -> list[dict]:
     """Liquid crypto perpetuals by 24h USD volume (for automatic coin

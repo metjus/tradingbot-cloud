@@ -387,6 +387,16 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
              "trained_at": r.trained_at.isoformat() if r.trained_at else None,
              "metrics": r.metrics} for r in rows]}
 
+    @app.get("/api/watch")
+    def api_watch() -> dict:
+        """What the bot sees per coin right now (watchlist)."""
+        if engine is None:
+            return {"coins": [], "evaluations": 0}
+        a = engine.analysis
+        return {"coins": sorted(a.watch.values(), key=lambda w: w["symbol"]),
+                "evaluations": a.evaluations,
+                "strategies": [s.name for s in engine.decision_engine.strategies]}
+
     @app.get("/api/decisions")
     def api_decisions(limit: int = 50) -> dict:
         from sqlalchemy import select
