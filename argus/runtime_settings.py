@@ -78,7 +78,7 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     # LLM news analysis (one provider active at a time)
     "llm_provider": ("none", str, None, None),             # none | claude | openai | gemini
     "llm_model": ("", str, None, None),
-    "llm_daily_budget_usd": (1.0, float, 0.0, 50.0),
+    "llm_daily_budget_usd": (2.0, float, 0.0, 50.0),
 }
 
 CHOICES = {
@@ -130,6 +130,8 @@ class RuntimeSettings:
         migrated = self._migrate_v12(stored)
         if self._migrate_v13(stored):
             migrated = True
+        if self._migrate_ai_budget(stored):
+            migrated = True
         for k, v in stored.items():
             if k in SCHEMA:
                 try:
@@ -154,6 +156,18 @@ class RuntimeSettings:
             stored["allow_short"] = True
             changed = True
         return changed
+
+    @staticmethod
+    def _migrate_ai_budget(stored: dict) -> bool:
+        """Stores from before the AI trader keep the old 1 $ daily AI budget,
+        which the trader plus news analysis can exhaust; raise it to 2 $ once,
+        only when it is still the untouched old default."""
+        if not stored or "ai_trader_enabled" in stored:
+            return False
+        if stored.get("llm_daily_budget_usd") == 1.0:
+            stored["llm_daily_budget_usd"] = 2.0
+            return True
+        return False
 
     @staticmethod
     def _migrate_v13(stored: dict) -> bool:

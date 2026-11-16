@@ -19,6 +19,8 @@
   - dostáva iba čísla (ceny, indikátory), žiadny externý text
   - potrebuje AI kľúč (Settings → AI); predvolený model na obchodovanie
     je silnejší (Claude Sonnet, ~0,45 $/deň pri BTC)
+- Denný rozpočet na AI zvýšený z 1 $ na **2 $** (AI trader + správy);
+  ak si ho nikdy nemenil, aktualizácia ho zdvihne sama.
 - Prečo AI a nie pravidlo: mechanická verzia tejto metódy (limit o kus
   lepšie po formujúcom sa prieraze/poklese) na 2 rokoch dát nezarobila
   v ani jednom z 84 variantov - rozhodujúci je úsudok, kedy a kde.

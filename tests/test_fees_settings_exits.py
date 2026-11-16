@@ -416,3 +416,22 @@ def test_v13_risk_bump_only_for_untouched_default(tmp_path):
                                          "risk_per_trade_pct": 0.7}))
         s.commit()
     assert RuntimeSettings(db2)["risk_per_trade_pct"] == 0.7
+
+
+def test_ai_budget_default_and_migration(tmp_path):
+    from argus.db.database import Database
+    from argus.db.schema import AppSetting
+    from argus.runtime_settings import KEY, RuntimeSettings
+    assert RuntimeSettings(Database(tmp_path / "n.db"))["llm_daily_budget_usd"] == 2.0
+    db = Database(tmp_path / "o.db")          # pre-AI-trader store, old default
+    with db.session() as s:
+        s.add(AppSetting(key=KEY, value={"leverage": 3.0, "entry_order": "limit",
+                                         "llm_daily_budget_usd": 1.0}))
+        s.commit()
+    assert RuntimeSettings(db)["llm_daily_budget_usd"] == 2.0
+    db2 = Database(tmp_path / "p.db")         # user-chosen value survives
+    with db2.session() as s:
+        s.add(AppSetting(key=KEY, value={"leverage": 3.0, "entry_order": "limit",
+                                         "llm_daily_budget_usd": 0.5}))
+        s.commit()
+    assert RuntimeSettings(db2)["llm_daily_budget_usd"] == 0.5
