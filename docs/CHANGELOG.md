@@ -3,11 +3,12 @@
 ## 1.2.x - AI trader
 
 - **AI trader**: jazykový model (Claude / GPT / Gemini podľa nastavenia)
-  obchoduje sám ako skalper - každých 30 minút si prečíta 15-min graf
-  (12 h sviečok, trend 1h/4h, RSI, ATR, funding) a rozhodne, kam dať
-  limitný príkaz (long pod cenou / short nad cenou), alebo nič. Pri
-  ďalšom rozhodnutí starý príkaz zruší a dá nový. Otvorenú pozíciu každých
-  30 minút zváži: držať alebo zavrieť.
+  obchoduje sám ako skalper - prečíta si 15-min graf (12 h sviečok,
+  trend 1h/4h, RSI, ATR, funding) a rozhodne, kam dať limitný príkaz
+  (long pod cenou / short nad cenou), alebo nič. Sama si určí aj to, kedy
+  sa pozrie znova (15 min v rýchlom trhu alebo blízko úrovne, až 4 h keď
+  je trh pokojný); dovtedy platí jej limit, potom ho zruší a dá nový.
+  Otvorenú pozíciu pri každom pohľade zváži: držať alebo zavrieť.
   - model navrhuje iba ceny; veľkosť, páku a limity určuje deterministický
     risk supervisor; navrhnuté ceny musia prejsť pevnými hranicami (limit
     max. 3 % od ceny, stop 0,25-4 %, zisk/riziko po poplatkoch aspoň 1,5)

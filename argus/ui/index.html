@@ -585,12 +585,13 @@ async function refreshAI(){
     return `<div class="list-item" style="flex-direction:column;align-items:stretch;gap:2px">
       <div style="display:flex;gap:8px"><span class="mono" style="color:var(--muted)">${t}</span>
         <b>${esc((d.symbol || "").split("/")[0])}</b> ${act}${lvl}<span class="spacer"></span>
-        <span class="small">${esc(d.result || "")}</span></div>
+        <span class="small">${esc(d.result || "")}${d.next_check_minutes ? ` · znova o ${d.next_check_minutes} min` : ""}</span></div>
       ${d.reason ? `<div style="color:var(--text2)">${esc(d.reason)}</div>` : ""}</div>`;
   }).join("");
   el.innerHTML = `<div style="margin-bottom:6px">${state}</div>
-    <div style="color:var(--text2);margin-bottom:8px">Každých 30 min si AI prečíta 15-min graf a rozhodne, kam dať limit
-      (long pod cenou / short nad cenou) alebo nič. Ďalšie rozhodnutie o <b class="mono">${next}</b>.</div>
+    <div style="color:var(--text2);margin-bottom:8px">AI číta 15-min graf a rozhodne, kam dať limit
+      (long pod cenou / short nad cenou) alebo nič - a aj to, kedy sa pozrie znova (15 min až 4 h, podľa trhu).
+      Ďalší pohľad o <b class="mono">${next}</b>.</div>
     ${dec || '<div class="small" style="color:var(--muted)">Zatiaľ žiadne rozhodnutie.</div>'}
     <div class="list-item" style="margin-top:6px"><span>Obchody</span><span class="spacer"></span><span class="mono">${x.trades ?? 0} (dnes ${x.today ?? 0}/${x.max_daily ?? "—"})</span></div>
     <div class="list-item"><span>Výsledok po poplatkoch</span><span class="spacer"></span><span class="mono ${cls(x.net_pl)}">${fmtEur(x.net_pl ?? 0)}</span></div>
@@ -1048,10 +1049,10 @@ const FIELDS = {
     ["llm_provider", "Aktívny poskytovateľ", "Vždy je aktívny najviac jeden. „none“ = bez AI, iba lokálny lexikón."],
     ["llm_model", "Model", "Predvolený je najlacnejší vhodný model daného poskytovateľa."],
     ["llm_daily_budget_usd", "Denný rozpočet na AI ($)", "Nad limit sa AI v ten deň nevolá."],
-    ["ai_trader_enabled", "AI trader (AI obchoduje sama podľa 15-min grafu)", "Každých 30 min rozhodne o limite long/short alebo nič. Potrebuje AI kľúč nižšie. Vypne sa sám, ak po poplatkoch prerába."],
-    ["ai_symbols", "AI trader: mince", "Napr. BTC/USD alebo BTC/USD, ETH/USD. Každá minca = 48 AI volaní denne."],
+    ["ai_trader_enabled", "AI trader (AI obchoduje sama podľa 15-min grafu)", "Rozhodne o limite long/short alebo nič a sama si určí, kedy sa pozrie znova (15 min - 4 h). Potrebuje AI kľúč nižšie. Vypne sa sám, ak po poplatkoch prerába."],
+    ["ai_symbols", "AI trader: mince", "Napr. BTC/USD alebo BTC/USD, ETH/USD. Každá minca = 6 až 96 AI volaní denne podľa toho, ako často sa AI rozhodne pozrieť."],
     ["ai_risk_scale", "AI trader: podiel bežného rizika", "0,25 = štvrtina rizika hlavnej stratégie na obchod."],
-    ["ai_model", "AI trader: model", "Prázdne = silnejší predvolený model poskytovateľa (Claude Sonnet ~0,45 $/deň pri BTC)."],
+    ["ai_model", "AI trader: model", "Prázdne = silnejší predvolený model poskytovateľa (Claude Sonnet ~0,1-0,9 $/deň pri BTC, podľa frekvencie)."],
     ["ml_auto_activate", "Automaticky nasadiť lepší ML model", "Iba model, ktorý prešiel walk-forward validáciou a je lepší ako aktuálny."],
   ],
 };

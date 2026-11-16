@@ -1,7 +1,9 @@
 """AI trader: a language model trades BTC the way a discretionary scalper
-does it - every 30 minutes it reads the 15-minute chart and decides where
-to rest a LIMIT order (long below the price, short above it), or to do
-nothing; with a position open it decides whether to hold or close.
+does it - it reads the 15-minute chart and decides where to rest a LIMIT
+order (long below the price, short above it), or to do nothing; with a
+position open it decides whether to hold or close. Like a human, it also
+decides WHEN to look again (15 min in a fast market or near a level, up to
+4 h when it is quiet); the resting order lives exactly until then.
 
 Why an LLM and not a rule: on 2 years of data, the mechanical version of
 this method (limit at a better price after a forming breakout/dip) has no
@@ -43,12 +45,12 @@ from .ta.features import compute_features
 log = logging.getLogger(__name__)
 
 STRATEGY = "ai_trader"
-DECIDE_EVERY_S = 1800          # every 30 minutes
-ORDER_VALID_S = 1800           # a resting limit lives until the next decision
+CHECK_MIN, CHECK_MAX = 15, 240     # minutes the model may wait before looking again
+CHECK_DEFAULT = 30
 
 SYSTEM = (
-    "You are a disciplined intraday crypto futures trader. Every 30 minutes you "
-    "read the 15-minute chart of one coin and decide where to rest a LIMIT order, "
+    "You are a disciplined intraday crypto futures trader. You read the 15-minute "
+    "chart of one coin and decide where to rest a LIMIT order, "
     "the way an experienced scalper does: when a breakout is forming you place a "
     "LONG limit somewhat BELOW the current price (buy the dip into it); when a "
     "drop is forming you place a SHORT limit somewhat ABOVE it (sell the bounce). "
@@ -58,6 +60,9 @@ SYSTEM = (
     "otherwise, so tiny targets are not worth it. Always give a stop-loss beyond "
     "the level that would prove you wrong and a realistic take-profit (at least "
     "1.5x the risk). When a position is open, decide 'hold' or 'close' instead. "
+    "Also decide when you want to look again (next_check_minutes, 15-240): soon "
+    "when the market moves fast or price is near your level, later when it is "
+    "quiet. A resting order stays valid exactly until then. "
     "Answer only with the JSON object described by the schema; the reason must "
     "be at most 30 words."
 )
@@ -71,9 +76,11 @@ SCHEMA = {
         "stop_loss": {"type": "number"},
         "take_profit": {"type": "number"},
         "confidence": {"type": "number"},
+        "next_check_minutes": {"type": "integer"},
         "reason": {"type": "string"},
     },
-    "required": ["action", "entry", "stop_loss", "take_profit", "confidence", "reason"],
+    "required": ["action", "entry", "stop_loss", "take_profit", "confidence",
+                 "next_check_minutes", "reason"],
     "additionalProperties": False,
 }
 
@@ -126,6 +133,16 @@ def build_brief(symbol: str, m15: list[Candle], h1: list[Candle], h4: list[Candl
     return "\n".join(lines)
 
 
+def check_minutes(decision: dict) -> int:
+    """Model's re-check interval, clamped to 15-240 min on the 15m grid."""
+    try:
+        m = int(decision.get("next_check_minutes") or CHECK_DEFAULT)
+    except (TypeError, ValueError):
+        m = CHECK_DEFAULT
+    m = max(CHECK_MIN, min(CHECK_MAX, m))
+    return max(CHECK_MIN, round(m / 15) * 15)
+
+
 def validate(decision: dict, price: float, cost_pct: float) -> tuple[Signal | None, str]:
     """Turn the model's proposal into a Signal or explain the rejection.
     Purely deterministic - the model cannot bypass any of these bounds."""
@@ -155,7 +172,7 @@ def validate(decision: dict, price: float, cost_pct: float) -> tuple[Signal | No
     reason = str(decision.get("reason") or "")[:200]
     return Signal(STRATEGY, "", d, e, sl, tp, conf, [f"AI: {reason}"],
                   timeframe=Timeframe.M15, exploration=True, sleeve="ai",
-                  expire_s=ORDER_VALID_S), ""
+                  expire_s=check_minutes(decision) * 60), ""
 
 
 class AITrader:
@@ -175,6 +192,7 @@ class AITrader:
         self._funding = funding_provider         # symbol -> float | None
         self._account = account_provider         # () -> AccountState
         self._last_slot: dict[str, int] = {}
+        self._next_due: dict[str, int] = {}     # symbol -> when to look again
         self.decisions: deque = deque(maxlen=40)
         self._task: asyncio.Task | None = None
         health.register("ai_trader", stale_after=4 * 3600)
@@ -190,7 +208,12 @@ class AITrader:
                                   * self._runtime["ai_risk_scale"], 3),
                 "model": self._llm.trader_model(self._runtime["ai_model"]),
                 "decisions": list(self.decisions)[::-1][:20],
-                "next_decision_ts": (int(time.time()) // DECIDE_EVERY_S + 1) * DECIDE_EVERY_S}
+                "next_decision_ts": min([self._next_due.get(s) or self._next_slot()
+                                         for s in self._symbols()] or [self._next_slot()])}
+
+    @staticmethod
+    def _next_slot() -> int:
+        return (int(time.time()) // 900 + 1) * 900
 
     def _symbols(self) -> list[str]:
         return list(self._runtime["ai_symbols"])
@@ -211,9 +234,9 @@ class AITrader:
             if bar.timeframe is not Timeframe.M15 or not bar.complete:
                 continue
             end = bar.ts + Timeframe.M15.seconds
-            if end % DECIDE_EVERY_S != 0 or bar.symbol not in self._symbols():
+            if bar.symbol not in self._symbols():
                 continue
-            if self._last_slot.get(bar.symbol) == end:
+            if self._last_slot.get(bar.symbol) == end or end < self._next_due.get(bar.symbol, 0):
                 continue
             self._last_slot[bar.symbol] = end
             if not self._runtime["ai_trader_enabled"]:
@@ -275,6 +298,9 @@ class AITrader:
             return rec
         rec.update({k: data.get(k) for k in ("action", "entry", "stop_loss",
                                              "take_profit", "confidence", "reason")})
+        minutes = check_minutes(data)
+        rec["next_check_minutes"] = minutes
+        self._next_due[symbol] = (int(time.time()) // 900) * 900 + minutes * 60
 
         # an open position: hold or close (the model cannot move stops)
         if position is not None:
@@ -313,7 +339,7 @@ class AITrader:
                              "factors": {"ai_confidence": sig.confidence}},
                     "risk": verdict.as_dict(), "source": "ai_trader"}
         self._bus.publish(DECISION_EVENT, decision)
-        rec["result"] = (f"{sig.direction} limit {_fmt(sig.entry)} zadaný na 30 min"
+        rec["result"] = (f"{sig.direction} limit {_fmt(sig.entry)} zadaný na {minutes} min"
                          + (" (nahradil starý)" if replaced else ""))
         self._db.audit("trade", f"{symbol}: AI trader - {rec['result']}; {rec.get('reason', '')}",
                        data={"stop": sig.stop_loss, "tp": sig.take_profit,

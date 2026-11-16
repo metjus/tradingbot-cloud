@@ -22,11 +22,20 @@ COST = 0.09   # maker entry + taker exit + slippage, % round trip
 
 def test_valid_long_limit_below_price():
     sig, why = validate({"action": "long_limit", "entry": 64800, "stop_loss": 64300,
-                         "take_profit": 65900, "confidence": 0.7, "reason": "dip"},
-                        65500, COST)
+                         "take_profit": 65900, "confidence": 0.7, "reason": "dip",
+                         "next_check_minutes": 45}, 65500, COST)
     assert sig is not None, why
     assert sig.direction == "LONG" and sig.sleeve == "ai" and sig.exploration
-    assert sig.expire_s == 1800 and sig.strategy == STRATEGY
+    assert sig.expire_s == 45 * 60 and sig.strategy == STRATEGY
+
+
+def test_model_chooses_when_to_look_again_within_bounds():
+    from argus.ai_trader import check_minutes
+    assert check_minutes({"next_check_minutes": 15}) == 15
+    assert check_minutes({"next_check_minutes": 100}) == 105      # 15m grid
+    assert check_minutes({"next_check_minutes": 1}) == 15         # floor
+    assert check_minutes({"next_check_minutes": 10_000}) == 240   # ceiling
+    assert check_minutes({}) == 30                                # default
 
 
 def test_long_limit_above_price_is_rejected():
@@ -122,7 +131,8 @@ async def test_decision_publishes_a_limit_entry_and_replaces_old(tmp_path):
     q = bus.subscribe(DECISION_EVENT)
     ex.start()
     rec = await ai.decide("BTC/USD")
-    assert "limit" in rec["result"]
+    assert "limit" in rec["result"] and "30 min" in rec["result"]
+    assert ai._next_due["BTC/USD"] > time.time()
     d = q.get_nowait().data
     assert d["source"] == "ai_trader" and d["risk"]["approved"]
     assert d["best"]["signal"]["sleeve"] == "ai"
