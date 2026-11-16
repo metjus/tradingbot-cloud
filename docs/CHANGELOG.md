@@ -2,6 +2,10 @@
 
 ## 1.2.x - objemový exit, výber AI modelu, lacnejšie maker vstupy
 
+- Predvolený počet mincí zvýšený z 10 na 15 - viac 4h signálov s overeným
+  očakávaním. Obchodovanie na 1h/15m/5m grafe sme premerali so všetkými
+  vylepšeniami: všetky varianty po poplatkoch prerábajú (PF 0,91-0,99,
+  prepady 28-61 %), preto ostáva 4h.
 - **Take-profit už nestrihá boom**: TP leží na 20R (predtým 6R) a obchod
   ukončuje trh - trailing, ochrana zisku, objem, sentiment. Strop 6R by na
   dátach odkrojil tretinu celkového zisku (najlepší obchod +15,6R).

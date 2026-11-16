@@ -63,7 +63,7 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     # instruments (applied on next engine start)
     "symbols": (DEFAULT_SYMBOLS, list, None, None),
     "auto_symbols": (True, bool, None, None),   # pick coins by 24h USD volume
-    "max_symbols": (10, int, 2, 20),
+    "max_symbols": (15, int, 2, 20),
     # ML
     "ml_auto_activate": (True, bool, None, None),
     # LLM news analysis (one provider active at a time)
