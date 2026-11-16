@@ -55,26 +55,41 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/F /T /IM ARGUS.exe"; Flags: runhid
 Filename: "{app}\ARGUS.exe"; Description: "Spustiť ARGUS"; Flags: nowait postinstall skipifsilent
 
 [Code]
-const
-  UninstKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{7E2C9D4A-ARGU-S001-TRAD-ING212000000_is1';
-
 var
   ModePage: TInputOptionWizardPage;
   PrevVersion: String;
 
+function UninstKey(): String;
+begin
+  // AppId is written with a doubled opening brace in [Setup]; Windows keys
+  // use a single one. ExpandConstant turns the doubled brace into one.
+  Result := ExpandConstant('Software\Microsoft\Windows\CurrentVersion\Uninstall\{#emit SetupSetting("AppId")}_is1');
+end;
+
 function FindPrevious(): Boolean;
 begin
   PrevVersion := '';
-  if not RegQueryStringValue(HKCU, UninstKey, 'DisplayVersion', PrevVersion) then
-    RegQueryStringValue(HKLM, UninstKey, 'DisplayVersion', PrevVersion);
-  if (PrevVersion = '') and (RegKeyExists(HKCU, UninstKey) or RegKeyExists(HKLM, UninstKey)) then
+  if not RegQueryStringValue(HKCU, UninstKey(), 'DisplayVersion', PrevVersion) then
+    RegQueryStringValue(HKLM, UninstKey(), 'DisplayVersion', PrevVersion);
+  if (PrevVersion = '') and (RegKeyExists(HKCU, UninstKey()) or RegKeyExists(HKLM, UninstKey())) then
     PrevVersion := '?';
   Result := PrevVersion <> '';
+  if Result then
+    Log('ARGUS: predchadzajuca instalacia najdena, verzia ' + PrevVersion)
+  else
+    Log('ARGUS: ziadna predchadzajuca instalacia (' + UninstKey() + ')');
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  // always runs (also for silent installs), before the wizard exists
+  FindPrevious();
+  Result := True;
 end;
 
 procedure InitializeWizard();
 begin
-  if FindPrevious() then
+  if PrevVersion <> '' then
   begin
     ModePage := CreateInputOptionPage(wpWelcome,
       'ARGUS je už nainštalovaný',

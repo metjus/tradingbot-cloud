@@ -77,6 +77,23 @@ jobs:
           & $iscc "/DAppVersion=$version" desktop/argus.iss
           Get-Item dist/ARGUS-setup.exe
 
+      - name: Installer detects an existing installation
+        shell: pwsh
+        run: |
+          # 1st install, then run the same installer again: it must find the
+          # first one (this is what shows the "reinstall / update" page)
+          $a = Start-Process dist/ARGUS-setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER','/NORESTART','/LOG=install1.log' -Wait -PassThru
+          if ($a.ExitCode -ne 0) { Get-Content install1.log -Tail 40; exit 1 }
+          $b = Start-Process dist/ARGUS-setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER','/NORESTART','/LOG=install2.log' -Wait -PassThru
+          if ($b.ExitCode -ne 0) { Get-Content install2.log -Tail 40; exit 1 }
+          Select-String -Path install1.log -Pattern 'ARGUS:'
+          if (-not (Select-String -Path install2.log -Pattern 'predchadzajuca instalacia najdena' -Quiet)) {
+            Write-Host "--- install2.log"; Select-String -Path install2.log -Pattern 'ARGUS:'
+            Write-Host "second run did NOT detect the first installation"; exit 1
+          }
+          Select-String -Path install2.log -Pattern 'ARGUS:'
+          Write-Host "upgrade detection OK"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
