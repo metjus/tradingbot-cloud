@@ -30,7 +30,7 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     "budget_eur": (10_000.0, float, 10.0, 10_000_000.0),
     "max_position_eur": (2_500.0, float, 5.0, 10_000_000.0),
     # risk
-    "risk_per_trade_pct": (0.5, float, 0.05, 1.0),        # hard ceiling 1 %
+    "risk_per_trade_pct": (1.0, float, 0.05, 1.0),        # hard ceiling 1 %
     "daily_max_loss_pct": (2.0, float, 0.2, 5.0),
     "max_open_positions": (4, int, 1, 20),
     "max_daily_trades": (15, int, 1, 200),
@@ -119,6 +119,8 @@ class RuntimeSettings:
             row = s.get(AppSetting, KEY)
             stored = dict(row.value) if row is not None else {}
         migrated = self._migrate_v12(stored)
+        if self._migrate_v13(stored):
+            migrated = True
         for k, v in stored.items():
             if k in SCHEMA:
                 try:
@@ -143,6 +145,19 @@ class RuntimeSettings:
             stored["allow_short"] = True
             changed = True
         return changed
+
+    @staticmethod
+    def _migrate_v13(stored: dict) -> bool:
+        """1.2.x stores (pre maker-entry era) kept the launch-phase 0.5 %
+        risk. The validated optimum is 1 % (about an eighth of Kelly for
+        the measured edge); bump it once, only when the user never changed
+        the old default."""
+        if not stored or "entry_order" in stored:
+            return False
+        if stored.get("risk_per_trade_pct") == 0.5:
+            stored["risk_per_trade_pct"] = 1.0
+            return True
+        return False
 
     def _save(self) -> None:
         with self._db.session() as s:

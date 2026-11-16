@@ -394,3 +394,25 @@ def test_v12_explicit_spot_choice_is_kept(tmp_path):
     rs.update({"fee_venue": "kraken"})        # deliberate spot choice on 1.2
     rs2 = RuntimeSettings(db)
     assert rs2["fee_venue"] == "kraken"
+
+
+def test_v13_risk_bump_only_for_untouched_default(tmp_path):
+    from argus.db.database import Database
+    from argus.db.schema import AppSetting
+    from argus.runtime_settings import KEY, RuntimeSettings
+    # 1.2 store with the old default risk -> bumped to the validated 1 %
+    db = Database(tmp_path / "a.db")
+    with db.session() as s:
+        s.add(AppSetting(key=KEY, value={"fee_venue": "kraken_futures",
+                                         "leverage": 3.0,
+                                         "risk_per_trade_pct": 0.5}))
+        s.commit()
+    assert RuntimeSettings(db)["risk_per_trade_pct"] == 1.0
+    # a user-tuned value survives
+    db2 = Database(tmp_path / "b.db")
+    with db2.session() as s:
+        s.add(AppSetting(key=KEY, value={"fee_venue": "kraken_futures",
+                                         "leverage": 3.0,
+                                         "risk_per_trade_pct": 0.7}))
+        s.commit()
+    assert RuntimeSettings(db2)["risk_per_trade_pct"] == 0.7

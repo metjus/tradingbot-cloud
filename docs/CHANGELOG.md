@@ -2,6 +2,10 @@
 
 ## 1.2.x - objemový exit, výber AI modelu, lacnejšie maker vstupy
 
+- **Riziko na obchod predvolene 1 %** (predtým 0,5 %): zodpovedá zhruba
+  osmine Kellyho optima pre nameraný edge - rozumná agresivita s prepadmi
+  okolo 20 %. Ak si hodnotu nikdy nemenil, aktualizácia ju zdvihne;
+  vlastné nastavenie sa nemení. Strop ostáva 1 %.
 - Predvolený počet mincí zvýšený z 10 na 15 - viac 4h signálov s overeným
   očakávaním. Obchodovanie na 1h/15m/5m grafe sme premerali so všetkými
   vylepšeniami: všetky varianty po poplatkoch prerábajú (PF 0,91-0,99,
