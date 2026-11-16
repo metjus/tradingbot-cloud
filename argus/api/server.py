@@ -387,6 +387,13 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
              "trained_at": r.trained_at.isoformat() if r.trained_at else None,
              "metrics": r.metrics} for r in rows]}
 
+    @app.get("/api/explore")
+    def api_explore() -> dict:
+        """Trial (skúšobný režim) sleeve: result net of fees + kill rules."""
+        if engine is None:
+            return {"enabled": False, "trades": 0}
+        return engine.explore_status()
+
     @app.get("/api/watch")
     def api_watch() -> dict:
         """What the bot sees per coin right now (watchlist)."""

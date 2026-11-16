@@ -56,6 +56,7 @@ class Engine:
             list(settings.crypto_symbols) if "crypto_symbols" in settings.model_fields_set
             else list(self.runtime["symbols"]))
         self.ticker: KrakenTicker | KrakenFuturesTicker | None = None
+        self._explore_off_reason: str | None = None
         self.universe: list[dict] = []     # auto-selected coins (futures)
         self.last_tick: dict[str, Tick] = {}
         self.forming_m1: dict[str, Candle] = {}
@@ -70,8 +71,8 @@ class Engine:
         self.selector = StrategySelector(audit=self.db.audit)
         strategies = None
         if venue(self.runtime["fee_venue"]).futures:
-            from .strategy.futures import FUTURES_STRATEGIES
-            strategies = list(FUTURES_STRATEGIES)
+            from .strategy.futures import EXPLORATION_STRATEGIES, FUTURES_STRATEGIES
+            strategies = list(FUTURES_STRATEGIES) + list(EXPLORATION_STRATEGIES)
         self.decision_engine = DecisionEngine(self.risk, strategies=strategies,
                                               enter_threshold=self.runtime["enter_threshold"],
                                               ml_scorer=ml_scorer, selector=self.selector)
@@ -250,6 +251,53 @@ class Engine:
                 if self.cloud else 0,
                 "server_ts": self.cloud.remote.get("server_ts") if self.cloud else None}
 
+    # --- exploration (skúšobný režim) guard ---------------------------------
+    EXPLORE_MIN_TRADES = 20
+    EXPLORE_MAX_LOSS_PCT = 1.0      # of the bot budget, net of fees
+
+    def explore_status(self) -> dict:
+        st = self.portfolio.explore_stats()
+        rs = self.runtime
+        st.update({"enabled": rs["explore_enabled"],
+                   "risk_pct": round(rs["risk_per_trade_pct"] * rs["explore_risk_scale"], 3),
+                   "min_trades": self.EXPLORE_MIN_TRADES,
+                   "max_loss_eur": round(rs["budget_eur"] * self.EXPLORE_MAX_LOSS_PCT / 100.0, 2),
+                   "max_daily": self.risk.limits.max_explore_daily,
+                   "max_open": self.risk.limits.max_explore_positions,
+                   "disabled_reason": self._explore_off_reason})
+        return st
+
+    def _check_explore(self) -> None:
+        """Switch the trial strategy off once it demonstrably loses AFTER
+        fees: profit factor < 1 after 20 trades, or a net loss beyond 1 %
+        of the budget at any point."""
+        if not self.runtime["explore_enabled"]:
+            return
+        st = self.portfolio.explore_stats()
+        max_loss = self.runtime["budget_eur"] * self.EXPLORE_MAX_LOSS_PCT / 100.0
+        reason = None
+        if st["trades"] >= self.EXPLORE_MIN_TRADES and (st["profit_factor"] or 0) < 1.0:
+            reason = (f"po {st['trades']} obchodoch prerába po poplatkoch "
+                      f"(PF {st['profit_factor']}, čistý výsledok {st['net_pl']:+.2f} €)")
+        elif st["net_pl"] <= -max_loss:
+            reason = (f"čistá strata {st['net_pl']:.2f} € prekročila limit "
+                      f"{max_loss:.2f} € (1 % rozpočtu)")
+        if reason:
+            self._explore_off_reason = reason
+            self.runtime.update({"explore_enabled": False})
+            msg = f"Skúšobný režim vypnutý: {reason}. Hlavná stratégia beží ďalej."
+            self.db.audit("risk", msg, "warning", st)
+            self.bus.publish("system_alert", {"category": "bot_state", "message": msg})
+
+    async def _explore_guard_loop(self, q) -> None:
+        while True:
+            ev = await q.get()
+            if isinstance(ev.data, dict) and ev.data.get("kind") == "closed":
+                try:
+                    self._check_explore()
+                except Exception as exc:
+                    log.warning("explore guard failed: %s", exc)
+
     def _market_compact(self) -> dict:
         """Small per-coin market summary for the phone."""
         out = {}
@@ -299,6 +347,8 @@ class Engine:
         L.maintenance_margin_pct = v.maintenance_margin_pct if v.futures else 0.0
         L.max_aligned_positions = max(2, round(rs["max_open_positions"] * 0.6))
         self.decision_engine.enter_threshold = rs["enter_threshold"]
+        self.decision_engine.explore_enabled = rs["explore_enabled"] and v.futures
+        self.decision_engine.explore_risk_scale = rs["explore_risk_scale"]
         self.executor.entry_order = rs["entry_order"]
         ep = self.executor.exit_params
         ep.enabled = rs["adaptive_exits"]
@@ -537,6 +587,9 @@ class Engine:
         if self.cloud is not None:
             self.cloud.start()
         flush_task = asyncio.get_running_loop().create_task(self._flush_loop(), name="flush-loop")
+        explore_q = self.bus.subscribe("trade")
+        explore_task = asyncio.get_running_loop().create_task(
+            self._explore_guard_loop(explore_q), name="explore-guard")
 
         info = self.info()
         self._info = info
@@ -564,6 +617,7 @@ class Engine:
             self.state = "stopping"
             flush_task.cancel()
             data_task.cancel()
+            explore_task.cancel()
             self.analysis.stop()
             self.executor.stop()
             self.ml_scheduler.stop()

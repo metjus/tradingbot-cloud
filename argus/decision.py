@@ -70,6 +70,10 @@ class DecisionEngine:
         self.ml_scorer = ml_scorer
         #: optional StrategySelector; disabled strategies are skipped
         self.selector = selector
+        #: exploration (trial) strategies run only while this is on
+        self.explore_enabled = False
+        #: runtime scale applied to exploration risk (overrides the strategy's)
+        self.explore_risk_scale = 0.1
 
     # --- scoring ----------------------------------------------------------
     def score(self, sig: Signal, ctx: MarketContext) -> ScoredSignal:
@@ -152,6 +156,8 @@ class DecisionEngine:
         res = DecisionResult(symbol=ctx.symbol, regime=ctx.regime, verdict="no_signal")
 
         for strat in self.strategies:
+            if strat.exploration and not self.explore_enabled:
+                continue
             if self.selector is not None and not self.selector.is_enabled(strat.name, ctx.symbol):
                 continue
             try:
@@ -165,15 +171,20 @@ class DecisionEngine:
             if not sig.valid():
                 res.notes.append(f"{strat.name}: invalid SL/TP layout, discarded")
                 continue
+            if sig.exploration:
+                sig.risk_scale = self.explore_risk_scale
             res.evaluated.append(self.score(sig, ctx))
 
         if not res.evaluated:
             return res
 
-        res.evaluated.sort(key=lambda s: s.score, reverse=True)
+        # validated strategies always win over a trial signal on the same bar
+        res.evaluated.sort(key=lambda s: (not s.signal.exploration, s.score), reverse=True)
         res.best = res.evaluated[0]
 
-        if res.best.score < self.enter_threshold:
+        # a trial signal is judged by its live result, not by the score
+        # heuristic; the risk supervisor (with its own trial caps) still applies
+        if res.best.score < self.enter_threshold and not res.best.signal.exploration:
             res.verdict = "reject"
             res.notes.append(
                 f"best score {res.best.score:.0f} below threshold {self.enter_threshold:.0f}")

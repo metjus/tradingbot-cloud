@@ -305,3 +305,82 @@ def test_watch_state_reports_trend_and_blocking_filters():
     # the next cross would be a LONG, blocked below EMA200 / BTC down
     assert w["next_signal"] == "LONG" and w["next_signal_allowed"] is False
     assert w["next_h4_close"] % 14400 == 0
+
+
+# --- exploration (skúšobný režim) --------------------------------------------
+
+def _xsig(entry=100.0, stop=104.0):
+    return Signal("pullback_short_4h", "SOL/USD", "SHORT", entry, stop, 20.0,
+                  0.5, [], timeframe=H4, exploration=True, risk_scale=0.1)
+
+
+def test_exploration_risk_is_a_tenth_and_has_own_caps():
+    rs = RiskSupervisor(limits(risk_per_trade_pct=1.0))
+    main = rs.check(sig("SHORT", 100.0, 104.0, 20.0), account())
+    trial = rs.check(_xsig(), account())
+    assert main.approved and trial.approved
+    assert math.isclose(trial.risk_amount, main.risk_amount * 0.1, rel_tol=1e-9)
+    # main caps do not block trial positions and vice versa
+    full_main = account(open_positions=4, open_short=3)
+    assert rs.check(_xsig(), full_main).approved
+    v = rs.check(_xsig(), account(explore_positions=2))
+    assert not v.approved and any("skúšobný" in x for x in v.vetoes)
+    v = rs.check(_xsig(), account(explore_today=3))
+    assert not v.approved and any("za deň" in x for x in v.vetoes)
+
+
+def test_exploration_vetoed_when_fees_eat_the_risk():
+    rs = RiskSupervisor(limits(round_trip_cost_pct=0.09))
+    # stop only 1 % away: 0.09 % fees = 9 % of R > 5 % limit
+    v = rs.check(_xsig(entry=100.0, stop=101.0), account())
+    assert not v.approved and any("poplatky" in x for x in v.vetoes)
+
+
+def test_decision_engine_skips_trials_when_disabled_and_prefers_validated():
+    from argus.decision import DecisionEngine
+    from argus.analysis.regime import Regime
+    from argus.strategy.base import Strategy
+
+    class Fixed(Strategy):
+        def __init__(self, name, s, exploration=False):
+            self.name, self._s, self.exploration = name, s, exploration
+            self.suited_regimes = ()
+        def evaluate(self, ctx):
+            return self._s
+
+    trial = Fixed("pullback_short_4h", _xsig(), exploration=True)
+    eng = DecisionEngine(RiskSupervisor(limits()), strategies=[trial], enter_threshold=99)
+    bars = h4_series(230, trend=-0.4, start=300.0)
+    ctx = ctx_for(bars)
+    ctx.regime = Regime.UNCERTAIN
+    assert eng.evaluate(ctx, account()).verdict == "no_signal"     # trials off
+    eng.explore_enabled = True
+    res = eng.evaluate(ctx, account())
+    assert res.verdict == "enter"            # threshold does not apply to trials
+    assert res.best.signal.exploration
+    # a validated signal on the same bar wins
+    validated = Fixed("trend_rider_4h", sig("SHORT", 100.0, 104.0, 20.0))
+    eng.strategies = [trial, validated]
+    eng.enter_threshold = 0
+    res = eng.evaluate(ctx, account())
+    assert res.best.signal.strategy == "trend_rider_4h"
+
+
+async def test_universe_excludes_non_crypto_by_venue_category():
+    import httpx
+    from argus.marketdata.kraken_futures import fetch_universe
+
+    def handler(req):
+        if req.url.path.endswith("/instruments"):
+            return httpx.Response(200, json={"instruments": [
+                {"symbol": "PF_XBTUSD", "category": "Layer 1"},
+                {"symbol": "PF_SPCXXUSD", "category": "xStocks"},
+                {"symbol": "PF_FOOUSD", "category": "Meme"}]})
+        tick = lambda s, vq: {"symbol": s, "volumeQuote": vq, "vol24h": 1,
+                              "bid": 100.0, "ask": 100.01, "last": 100.0}
+        return httpx.Response(200, json={"tickers": [
+            tick("PF_XBTUSD", 9e8), tick("PF_SPCXXUSD", 5e6), tick("PF_FOOUSD", 9e6)]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        uni = await fetch_universe(client=c)
+    assert [u["symbol"] for u in uni] == ["BTC/USD"]

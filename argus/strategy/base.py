@@ -36,6 +36,9 @@ class Signal:
     confidence: float              # 0..1 strategy-internal quality
     reasons: list[str]
     timeframe: Timeframe = Timeframe.M5
+    #: exploration (trial) signals trade at a fraction of the normal risk
+    exploration: bool = False
+    risk_scale: float = 1.0
 
     @property
     def risk_per_unit(self) -> float:
@@ -62,6 +65,7 @@ class Signal:
             "stop_loss": self.stop_loss, "take_profit": self.take_profit,
             "confidence": round(self.confidence, 3), "rr": round(self.rr, 2),
             "timeframe": self.timeframe.value, "reasons": self.reasons,
+            "exploration": self.exploration, "risk_scale": self.risk_scale,
         }
 
 
@@ -69,6 +73,9 @@ class Strategy(ABC):
     """A strategy inspects the context and proposes at most one signal."""
 
     name: str = "strategy"
+    #: trial strategy without a validated edge: traded at a fraction of the
+    #: normal risk, with its own caps and an automatic kill switch
+    exploration: bool = False
     #: regimes this strategy is designed for; the decision engine
     #: penalises (not blocks) signals outside them
     suited_regimes: tuple[Regime, ...] = ()

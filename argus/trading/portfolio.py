@@ -20,6 +20,11 @@ from ..risk import AccountState
 log = logging.getLogger(__name__)
 
 
+def _explore_names() -> set[str]:
+    from ..strategy.futures import EXPLORATION_NAMES
+    return EXPLORATION_NAMES
+
+
 @dataclass(slots=True)
 class OpenPosition:
     trade_id: int
@@ -86,6 +91,7 @@ class Portfolio:
     equity: float = 0.0
     day_start_equity: float = 0.0
     trades_today: int = 0
+    explore_today: int = 0
     _day: int = -1
     positions: dict[str, OpenPosition] = field(default_factory=dict)
 
@@ -128,6 +134,7 @@ class Portfolio:
             self._day = today
             self.day_start_equity = self.equity
             self.trades_today = 0
+            self.explore_today = 0
 
     # --- lifecycle ------------------------------------------------------------
     def record_entry(self, client_order_id: str, symbol: str, direction: str,
@@ -157,6 +164,8 @@ class Portfolio:
                            margin=margin, liq_price=liq_price)
         self.positions[client_order_id] = pos
         self.trades_today += 1
+        if strategy in _explore_names():
+            self.explore_today += 1
         return pos
 
     def record_exit(self, client_order_id: str, price: float, fee: float,
@@ -193,17 +202,36 @@ class Portfolio:
     def account_state(self) -> AccountState:
         self._roll_day()
         open_risk = sum(p.risk_pct for p in self.positions.values())
+        trial = _explore_names()
+        main = [p for p in self.positions.values() if p.strategy not in trial]
         return AccountState(equity=self.equity, day_start_equity=self.day_start_equity,
-                            open_positions=len(self.positions),
+                            open_positions=len(main),
                             trades_today=self.trades_today, open_risk_pct=open_risk,
                             open_notional=self.invested_total(),
-                            open_long=sum(1 for p in self.positions.values()
-                                          if p.direction == "LONG"),
-                            open_short=sum(1 for p in self.positions.values()
-                                           if p.direction == "SHORT"))
+                            open_long=sum(1 for p in main if p.direction == "LONG"),
+                            open_short=sum(1 for p in main if p.direction == "SHORT"),
+                            explore_positions=len(self.positions) - len(main),
+                            explore_today=self.explore_today)
 
     def invested_total(self) -> float:
         return sum(p.invested for p in self.positions.values())
+
+    def explore_stats(self) -> dict:
+        """Result of the trial (exploration) sleeve, NET of fees."""
+        names = _explore_names()
+        with self.db.session() as s:
+            rows = s.execute(select(Trade.pl, Trade.fees).where(
+                Trade.status == "closed", Trade.mode == self.mode,
+                Trade.strategy.in_(names))).all()
+        pls = [r[0] or 0.0 for r in rows]
+        fees = sum(r[1] or 0.0 for r in rows)
+        pos = sum(p for p in pls if p > 0)
+        neg = -sum(p for p in pls if p <= 0)
+        return {"trades": len(pls), "net_pl": round(sum(pls), 2),
+                "fees": round(fees, 2), "gross_pl": round(sum(pls) + fees, 2),
+                "profit_factor": round(pos / neg, 2) if neg > 0 else (None if not pos else 99.0),
+                "open": sum(1 for p in self.positions.values() if p.strategy in names),
+                "today": self.explore_today}
 
     def stats(self) -> dict:
         """Win rate / profit factor / max drawdown from closed trades."""

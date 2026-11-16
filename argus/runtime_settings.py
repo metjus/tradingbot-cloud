@@ -59,6 +59,10 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     "sentiment_exit": (True, bool, None, None),
     "regime_exit": (True, bool, None, None),
     "volume_exit": (True, bool, None, None),
+    # exploration (skúšobný režim): trial strategy at a fraction of the risk,
+    # auto-off when it loses after fees
+    "explore_enabled": (True, bool, None, None),
+    "explore_risk_scale": (0.1, float, 0.05, 0.3),
     "volume_exit_min_r": (1.0, float, 0.3, 5.0),
     # instruments (applied on next engine start)
     "symbols": (DEFAULT_SYMBOLS, list, None, None),

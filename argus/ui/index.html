@@ -148,6 +148,10 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
         </div>
         <div class="col-side">
           <div class="card">
+            <div class="label" style="margin-bottom:6px">Skúšobný režim</div>
+            <div id="dash-explore" class="small">—</div>
+          </div>
+          <div class="card">
             <div class="label" style="margin-bottom:6px">Čo bot sleduje</div>
             <div id="dash-watch-head" class="small" style="margin-bottom:6px">—</div>
             <div id="dash-watch" class="small">—</div>
@@ -555,6 +559,26 @@ function onTick(tk){
   el.dataset.p = tk.price;
 }
 
+// --- exploration (trial) sleeve ---
+async function refreshExplore(){
+  let x;
+  try { x = await api("/api/explore"); } catch(e){ return; }
+  const el = $("dash-explore");
+  if (!el) return;
+  const pf = x.profit_factor != null ? x.profit_factor.toFixed(2) : "—";
+  const state = x.enabled
+    ? `${sdot("profit")}<b>zapnutý</b> · riziko ${x.risk_pct}% na obchod`
+    : `${sdot("warn")}<b>vypnutý</b>${x.disabled_reason ? ` - ${esc(x.disabled_reason)}` : ""}`;
+  el.innerHTML = `<div style="margin-bottom:6px">${state}</div>
+    <div style="color:var(--text2);margin-bottom:8px">Shorty na odraze v 4h poklese, aby bot obchodoval aj vo „vákuu".
+      Nie je to overený edge - beží s desatinovým rizikom a vypne sa sám, ak po poplatkoch prerába.</div>
+    <div class="list-item"><span>Obchody</span><span class="spacer"></span><span class="mono">${x.trades} (dnes ${x.today}/${x.max_daily}, otvorené ${x.open}/${x.max_open})</span></div>
+    <div class="list-item"><span>Výsledok po poplatkoch</span><span class="spacer"></span><span class="mono ${cls(x.net_pl)}">${fmtEur(x.net_pl)}</span></div>
+    <div class="list-item"><span>Zaplatené poplatky</span><span class="spacer"></span><span class="mono">${(x.fees ?? 0).toFixed(2)} €</span></div>
+    <div class="list-item"><span>Profit factor</span><span class="spacer"></span><span class="mono ${x.profit_factor != null ? (x.profit_factor >= 1 ? "profit" : "loss") : ""}">${pf}</span></div>
+    <div class="small" style="color:var(--muted);margin-top:6px">Automatické vypnutie: PF pod 1,0 po ${x.min_trades} obchodoch, alebo čistá strata nad ${x.max_loss_eur} €.</div>`;
+}
+
 // --- watchlist: what the bot sees per coin, so a quiet bot is visibly alive ---
 async function refreshWatch(){
   let w;
@@ -604,6 +628,11 @@ function fmtUsd(v){
   if (v >= 1e3) return Math.round(v / 1e3) + "\u00a0tis.\u00a0$";
   return Math.round(v) + "\u00a0$";
 }
+// compact form for narrow tables: 549 M $, 2,2 M $
+const fmtUsdShort = (v) => v == null ? "—" :
+  v >= 1e9 ? (v / 1e9).toFixed(1) + "\u00a0mld.$" :
+  v >= 1e6 ? (v / 1e6).toFixed(v >= 1e8 ? 0 : 1) + "\u00a0M$" :
+  Math.round(v / 1e3) + "\u00a0k$";
 const fmtQty = (v) => v == null ? "—" :
   v >= 1e9 ? (v / 1e9).toFixed(2) + " mld." :
   v >= 1e6 ? (v / 1e6).toFixed(2) + " mil." :
@@ -623,10 +652,10 @@ function renderMarketTable(){
     const f = m.funding_rate_h != null ? m.funding_rate_h * 100 : null;
     return `<div class="list-item" style="cursor:pointer;flex-wrap:nowrap;white-space:nowrap;gap:8px" onclick="$('sel-symbol').value='${esc(sym)}';loadChart(true)">
       <b style="min-width:52px">${esc(sym.split("/")[0])}</b>
-      <span class="mono" style="min-width:72px">${m.last != null ? Number(m.last).toPrecision(6) : "—"}</span>
+      <span class="mono" style="min-width:64px">${m.last != null ? Number(m.last).toPrecision(5) : "—"}</span>
       <span class="spacer"></span>
-      <span class="mono" title="${fmtQty(m.vol24h)} ${esc(sym.split("/")[0])}">${fmtUsd(m.volume_quote)}</span>
-      ${marketData.futures && f != null ? `<span class="mono small ${f > 0 ? "loss" : "profit"}" style="min-width:58px;text-align:right" title="funding za hodinu">${f >= 0 ? "+" : ""}${f.toFixed(4)}%</span>` : ""}
+      <span class="mono" title="24h objem: ${fmtUsd(m.volume_quote)} = ${fmtQty(m.vol24h)} ${esc(sym.split("/")[0])}">${fmtUsdShort(m.volume_quote)}</span>
+      ${marketData.futures && f != null ? `<span class="mono small ${f > 0 ? "loss" : "profit"}" style="min-width:52px;text-align:right" title="funding za hodinu">${f >= 0 ? "+" : ""}${f.toFixed(3)}%</span>` : ""}
     </div>`;
   }).join("");
   el.innerHTML = rows || "—";
@@ -966,6 +995,8 @@ const FIELDS = {
     ["giveback_min_r", "Ochrana zisku od (R)", "Ochrana sa zapne, až keď zisk dosiahol aspoň toľkoto R."],
     ["sentiment_exit", "Reagovať na zvrat sentimentu", ""],
     ["regime_exit", "Reagovať na zvrat trhového režimu", ""],
+    ["explore_enabled", "Skúšobný režim (obchodovať aj vo „vákuu“)", "Shorty na odraze v 4h poklese s desatinovým rizikom. Vypne sa sám, ak po poplatkoch prerába (PF pod 1 po 20 obchodoch alebo strata nad 1 % rozpočtu)."],
+    ["explore_risk_scale", "Skúšobný režim: podiel bežného rizika", "0,1 = desatina rizika hlavnej stratégie."],
     ["volume_exit", "Zavrieť zisk, keď objem vyschne", "V zisku a objem je 2 sviečky pod polovicou priemeru - hybná sila vyprchala, zisk sa uzamkne."],
     ["volume_exit_min_r", "Objemový exit od zisku (R)", ""],
   ],
@@ -1370,6 +1401,8 @@ refreshMarket();
 setInterval(refreshMarket, 10000);
 refreshWatch();
 setInterval(refreshWatch, 30000);
+refreshExplore();
+setInterval(refreshExplore, 30000);
 connectWs();
 </script>
 </body>

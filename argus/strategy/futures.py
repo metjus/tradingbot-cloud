@@ -148,3 +148,51 @@ class Donchian4h(_H4Strategy):
 #: (maker entries, volume exit, no TP cap) it measured IS PF 0.97 / OOS PF
 #: 1.03 - more trades, no edge, extra drawdown.
 FUTURES_STRATEGIES: list[Strategy] = [TrendRider4h()]
+
+
+class PullbackShort4h(_H4Strategy):
+    """EXPLORATION (skúšobný režim): short the bounce in an established 4h
+    downtrend - the closed 4h bar rallied into EMA21 and closed back below
+    it as a red candle, below EMA200, with BTC pointing down.
+
+    Not a validated edge: on 2y Kraken Futures data (maker entry, live exit
+    engine) the short side measured PF 1.05 in the falling year and lost in
+    the flat year; the long mirror lost in both (PF 0.65), so it is shorts
+    only. It trades at a tenth of the normal risk with its own caps and is
+    switched off automatically if it loses after fees (see engine guard).
+    """
+
+    name = "pullback_short_4h"
+    exploration = True
+    suited_regimes = (Regime.STRONG_DOWNTREND, Regime.HIGH_VOLATILITY,
+                      Regime.UNCERTAIN, Regime.SIDEWAYS)
+    atr_stop = 2.5
+
+    def evaluate(self, ctx: MarketContext) -> Signal | None:
+        bars = self._new_h4(ctx)
+        f4 = ctx.f(H4)
+        if bars is None or f4 is None or f4.atr14 is None or f4.ema200 is None:
+            return None
+        closes = [b.close for b in bars]
+        e21 = ind.ema(closes, 21)[-1]
+        e50 = ind.ema(closes, 50)[-1]
+        last = bars[-1]
+        if e21 is None or e50 is None:
+            return None
+        downtrend = e21 < e50 and last.close < f4.ema200
+        bounce_rejected = last.high >= e21 and last.close < e21 and last.close < last.open
+        if not (downtrend and bounce_rejected and _btc_ok(ctx, "SHORT")):
+            return None
+        price = _price(ctx) or last.close
+        stop = price + self.atr_stop * f4.atr14
+        tp = self._tp_from_rr(price, stop, TP_CAP_R, "SHORT")
+        sig = Signal(self.name, ctx.symbol, "SHORT", price, stop, tp, 0.5, [
+            "4h downtrend (EMA21 < EMA50, pod EMA200)",
+            "odraz k 4h EMA21 odmietnutý červenou sviečkou", "BTC filter OK",
+            "SKÚŠOBNÝ REŽIM: desatinové riziko"], timeframe=H4,
+            exploration=True, risk_scale=0.1)
+        return sig if sig.valid() else None
+
+
+EXPLORATION_STRATEGIES: list[Strategy] = [PullbackShort4h()]
+EXPLORATION_NAMES = {s.name for s in EXPLORATION_STRATEGIES}

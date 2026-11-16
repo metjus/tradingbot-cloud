@@ -1,5 +1,22 @@
 # Zoznam zmien
 
+## 1.2.x - skúšobný režim (obchody aj vo „vákuu")
+
+- **Skúšobný režim**: kým hlavná stratégia čaká na obrat trendu, bot môže
+  shortovať odraz v 4h poklese (cena sa vráti k 4h EMA21 a zatvorí späť
+  pod ňou červenou sviečkou, pod EMA200, BTC klesá). Nie je to overený
+  edge (v klesajúcom roku PF 1,05), preto:
+  - riziko je **desatina** bežného (0,1 % namiesto 1 %),
+  - vlastné limity: max. 2 pozície naraz a 3 vstupy za deň,
+  - obchod sa neotvorí, ak by poplatky zjedli viac ako 5 % rizika,
+  - **automaticky sa vypne**, ak po poplatkoch prerába (profit factor
+    pod 1,0 po 20 obchodoch, alebo čistá strata nad 1 % rozpočtu) a
+    pošle notifikáciu; hlavná stratégia beží ďalej.
+  - nikdy neblokuje hlavnú stratégiu (vlastné počítadlá pozícií).
+  Karta na dashboarde ukazuje výsledok po poplatkoch a zaplatené poplatky.
+- Výber mincí vynecháva tokenizované akcie, komodity, stablecoiny a meme
+  mince podľa kategórie, ktorú uvádza samotná burza.
+
 ## 1.2.x - panel „Čo bot sleduje", rýchlejší štart
 
 - Nový panel **Čo bot sleduje** na dashboarde: pri každej minci 4h trend,

@@ -209,6 +209,12 @@ class KrakenFuturesTicker:
         await self._client.aclose()
 
 
+#: instrument categories that are not crypto coins (or are meme coins);
+#: taken from the venue's own instrument metadata
+EXCLUDED_CATEGORIES = {"xStocks", "Equities", "Commodities", "Stablecoin",
+                       "Pre-IPO", "Forex", "Meme", "Real-world assets"}
+
+
 async def fetch_universe(min_volume_usd: float = 2_000_000.0,
                          limit: int = 12,
                          client: httpx.AsyncClient | None = None) -> list[dict]:
@@ -218,12 +224,23 @@ async def fetch_universe(min_volume_usd: float = 2_000_000.0,
     own = client is None
     client = client or httpx.AsyncClient(timeout=15.0)
     try:
+        # category per instrument from the venue (xStocks, Meme, ...): a
+        # name-based denylist cannot keep up with newly listed products
+        excluded: set[str] = set()
+        try:
+            ri = await client.get(f"{BASE}/derivatives/api/v3/instruments")
+            ri.raise_for_status()
+            for ins in ri.json().get("instruments", []):
+                if ins.get("tradfi") or ins.get("category") in EXCLUDED_CATEGORIES:
+                    excluded.add(ins.get("symbol", ""))
+        except Exception as exc:          # metadata optional; denylist still applies
+            log.warning("instrument categories unavailable: %s", exc)
         r = await client.get(f"{BASE}/derivatives/api/v3/tickers")
         r.raise_for_status()
         out = []
         for t in r.json().get("tickers", []):
             pf = t.get("symbol", "")
-            if not pf.startswith("PF_") or t.get("suspended"):
+            if not pf.startswith("PF_") or t.get("suspended") or pf in excluded:
                 continue
             base = pf.removeprefix("PF_").removesuffix("USD")
             ui_base = _BASE_UNMAP.get(base, base)

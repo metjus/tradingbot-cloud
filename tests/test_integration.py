@@ -109,7 +109,8 @@ async def test_full_engine_boot_api_and_pipeline(settings):
                        "/api/strategies", "/api/risk", "/api/config", "/api/readiness",
                        "/api/settings", "/api/llm", "/api/ml/status", "/api/audit",
                        "/api/candles/SYN/USD/5m", "/api/indicators/SYN/USD/5m",
-                       "/api/knowledge/export"]:
+                       "/api/knowledge/export", "/api/market", "/api/watch",
+                       "/api/explore", "/api/cloud"]:
                 r = await client.get(ep)
                 assert r.status_code == 200, f"{ep} -> {r.status_code}: {r.text[:300]}"
 

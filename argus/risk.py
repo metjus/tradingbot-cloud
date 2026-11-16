@@ -39,6 +39,9 @@ class RiskLimits:
     max_aligned_positions: int = 3         # positions in the SAME direction
                                            # (crypto moves together - this caps
                                            # stacking one big correlated bet)
+    max_explore_positions: int = 2         # trial (exploration) positions at once
+    max_explore_daily: int = 3             # trial entries per day (fee budget)
+    max_explore_cost_share: float = 0.05   # trial: fees may eat at most 5 % of R
 
     def effective_risk_pct(self) -> float:
         return min(self.risk_per_trade_pct, self.max_risk_per_trade_pct)
@@ -54,6 +57,8 @@ class AccountState:
     open_notional: float = 0.0   # margin currently blocked in open positions
     open_long: int = 0           # open LONG positions (correlation cap)
     open_short: int = 0
+    explore_positions: int = 0   # open trial positions (not in the caps above)
+    explore_today: int = 0
 
     @property
     def daily_pl_pct(self) -> float:
@@ -139,13 +144,27 @@ class RiskSupervisor:
         if account.daily_pl_pct <= -L.daily_max_loss_pct:
             vetoes.append(
                 f"denný limit straty dosiahnutý ({account.daily_pl_pct:.2f}% <= -{L.daily_max_loss_pct}%)")
-        if account.open_positions >= L.max_open_positions:
-            vetoes.append(f"max. počet otvorených pozícií ({account.open_positions})")
-        aligned = account.open_long if signal.direction == "LONG" else account.open_short
-        if aligned >= L.max_aligned_positions:
-            vetoes.append(
-                f"už {aligned} pozícií v smere {signal.direction} - krypto sa hýbe "
-                f"spolu, ďalšia by len zväčšila tú istú stávku")
+        if signal.exploration:
+            # trial positions have their own small caps and must not crowd
+            # out the validated strategy
+            if account.explore_positions >= L.max_explore_positions:
+                vetoes.append(f"skúšobný režim: max. {L.max_explore_positions} pozície naraz")
+            if account.explore_today >= L.max_explore_daily:
+                vetoes.append(f"skúšobný režim: max. {L.max_explore_daily} vstupy za deň "
+                              f"(strop na poplatky)")
+            cost_share = signal.entry * L.round_trip_cost_pct / 100.0 / signal.risk_per_unit \
+                if signal.risk_per_unit > 0 else 1.0
+            if cost_share > L.max_explore_cost_share:
+                vetoes.append(f"skúšobný režim: poplatky by zjedli {cost_share * 100:.0f} % "
+                              f"rizika (limit {L.max_explore_cost_share * 100:.0f} %)")
+        else:
+            if account.open_positions >= L.max_open_positions:
+                vetoes.append(f"max. počet otvorených pozícií ({account.open_positions})")
+            aligned = account.open_long if signal.direction == "LONG" else account.open_short
+            if aligned >= L.max_aligned_positions:
+                vetoes.append(
+                    f"už {aligned} pozícií v smere {signal.direction} - krypto sa hýbe "
+                    f"spolu, ďalšia by len zväčšila tú istú stávku")
         if account.trades_today >= L.max_daily_trades:
             vetoes.append(f"max. počet obchodov za deň ({account.trades_today})")
         if spread_pct is not None and spread_pct > L.max_spread_pct:
@@ -155,7 +174,7 @@ class RiskSupervisor:
         if capital <= 0:
             vetoes.append("nulový obchodovateľný kapitál")
 
-        risk_pct = L.effective_risk_pct()
+        risk_pct = L.effective_risk_pct() * max(0.0, min(1.0, signal.risk_scale))
         if account.open_risk_pct + risk_pct > L.daily_max_loss_pct:
             vetoes.append(
                 f"otvorené riziko {account.open_risk_pct:.2f}% + nové {risk_pct:.2f}% "
