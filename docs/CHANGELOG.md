@@ -1,5 +1,34 @@
 # Zoznam zmien
 
+## 1.2.x - aktívny režim = trendové portfólio (~13 obchodov denne, v pluse)
+
+Predchádzajúci aktívny režim (jeden PSAR na 4h) robil obchody, ale po
+poplatkoch bol na nule. Nahradilo ho **trendové portfólio**:
+- **12 systémov** (Supertrend, Parabolic SAR, EMA cross, Donchian) na
+  2h, 4h, 6h a 8h grafoch, väčšina s filtrom EMA200,
+- každý systém drží pozíciu na minci, kým trend trvá, a pri otočení ju
+  zavrie (ak filter dovolí, otvorí opačnú); bezpečnostný stop 3 ATR,
+- obchoduje **~20 najobchodovanejších mincí**, vstupy aj výstupy marketom,
+- veľkosť pozícií sa prispôsobuje **volatilite trhu** (×0,25 až ×1,5).
+
+**Ako bolo vybrané (bez prikrášľovania):** 240 systémov otestovaných na
+2 rokoch dát Kraken Futures s market vstupom aj výstupom, sklzom
+a fundingom. 12 systémov bolo vybraných **iba podľa prvého roka**;
+druhý rok ich výber nevidel. V druhom roku mal každý z nich PF nad 1,1,
+spolu **PF 1,29 pri ~13 obchodoch denne**.
+
+**Čo čakať pri 0,02 % riziku na obchod** (10 000 simulovaných rokov):
+medián **+20 %/rok**, 5 % najhorších rokov -9 až -15 %, stratový rok
+v 15-20 % prípadov, typický prepad 11-15 %. Pri 0,03 %: medián ~+30 %,
+prepad 16-21 %. Beží popri hlavnej stratégii (tá má vlastné riziko).
+
+**Treba vedieť:** úspešnosť je ~36 % - zarába málo veľkých obchodov
+a veľa malých strát. Aj zdravý systém má v ~40 % mesiacov PF pod 1, preto
+sa hodnotí na mesiace. Naraz býva otvorených ~100 malých pozícií.
+Automatické vypnutie: čistá strata nad 25 % rozpočtu (alebo PF pod 1 po
+3000 obchodoch). Pred ostrým obchodovaním budú potrebné sub-účty (burza
+spája pozície na rovnakej minci).
+
 ## 1.2.x - aktívny režim: 5+ obchodov denne (paper)
 
 Hlavná stratégia (trend_rider_4h na top 5 mincí) robí len pár obchodov

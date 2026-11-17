@@ -224,7 +224,17 @@ class Portfolio:
                                                   if _sleeve_of(p.strategy) == "explore"),
                             explore_today=self.explore_today,
                             sleeve_open=self._sleeve_open(),
-                            sleeve_today=dict(self.sleeve_today))
+                            sleeve_today=dict(self.sleeve_today),
+                            main_open_risk_pct=sum(p.risk_pct for p in main),
+                            sleeve_risk=self._sleeve_risk())
+
+    def _sleeve_risk(self) -> dict:
+        out: dict = {}
+        for p in self.positions.values():
+            sl = _sleeve_of(p.strategy)
+            if sl is not None:
+                out[sl] = out.get(sl, 0.0) + p.risk_pct
+        return out
 
     def _sleeve_open(self) -> dict:
         out: dict = {}

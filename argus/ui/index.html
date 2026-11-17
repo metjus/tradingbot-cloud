@@ -623,25 +623,33 @@ async function refreshExplore(){
     <div class="small" style="color:var(--muted);margin-top:6px">Automatické vypnutie: PF pod 1,0 po ${x.min_trades} obchodoch, alebo čistá strata nad ${x.max_loss_eur} €.</div>`;
 }
 
-// --- active mode: busy paper account (PSAR 4h flip, wider coin set) ---
+// --- active mode: trend portfolio (12 flip systems on ~20 coins) ---
 async function refreshActive(){
   let x;
   try { x = await api("/api/active"); } catch(e){ return; }
   const el = $("dash-active");
   if (!el) return;
   const pf = x.profit_factor != null ? x.profit_factor.toFixed(2) : "—";
+  const vf = x.vol_factor != null ? x.vol_factor : 1;
   const state = x.enabled
-    ? `${sdot("profit")}<b>zapnutý</b> · riziko ${x.risk_pct}% na obchod`
+    ? `${sdot("profit")}<b>zapnutý</b> · ${x.systems ?? 12} systémov × ${x.coins ?? 20} mincí · riziko ${x.risk_pct}% na obchod`
     : `${sdot("warn")}<b>vypnutý</b>${x.disabled_reason ? ` - ${esc(x.disabled_reason)}` : ""}`;
+  const volLine = x.market_vol_pct != null
+    ? `Volatilita trhu ${x.market_vol_pct}% denne → veľkosť pozícií ×${vf} (pokojný trh viac, divoký menej).`
+    : "Volatilita trhu sa počíta po načítaní histórie.";
   el.innerHTML = `<div style="margin-bottom:6px">${state}</div>
-    <div style="color:var(--text2);margin-bottom:8px">Parabolic SAR na 4h grafe, ${x.coins ?? 20} najobchodovanejších mincí,
-      vždy v trhu - pri otočení SAR sa pozícia obráti. Cieľ 5+ obchodov denne. V teste po poplatkoch
-      zhruba na nule s veľkými výkyvmi, preto vlastný účet a desatinové riziko.</div>
-    <div class="list-item"><span>Obchody</span><span class="spacer"></span><span class="mono">${x.trades ?? 0} (dnes ${x.today ?? 0}, otvorené ${x.open ?? 0}/${x.max_open ?? "—"})</span></div>
+    <div style="color:var(--text2);margin-bottom:8px">Trendové portfólio: 12 systémov (Supertrend, Parabolic SAR, EMA, Donchian)
+      na 2h-8h grafoch. Každý drží pozíciu, kým trend trvá, a pri otočení ju zavrie. V teste na nevidenom roku
+      ~13 obchodov denne, PF 1,29 po poplatkoch. Výhry prichádzajú v sériách (úspešnosť ~36 %) - hodnotiť na mesiace, nie dni.
+      ${volLine}</div>
+    ${(x.trend_long || x.trend_short) ? `<div class="list-item"><span>Smer trendu (systémy × mince)</span><span class="spacer"></span>
+      <span class="mono"><span class="profit">${x.trend_long} long</span> · <span class="loss">${x.trend_short} short</span></span></div>` : ""}
+    <div class="list-item"><span>Obchody</span><span class="spacer"></span><span class="mono">${x.trades ?? 0} (dnes ${x.today ?? 0}, otvorené ${x.open ?? 0})</span></div>
     <div class="list-item"><span>Výsledok po poplatkoch</span><span class="spacer"></span><span class="mono ${cls(x.net_pl)}">${fmtEur(x.net_pl ?? 0)}</span></div>
     <div class="list-item"><span>Zaplatené poplatky</span><span class="spacer"></span><span class="mono">${(x.fees ?? 0).toFixed(2)} €</span></div>
     <div class="list-item"><span>Profit factor</span><span class="spacer"></span><span class="mono ${x.profit_factor != null ? (x.profit_factor >= 1 ? "profit" : "loss") : ""}">${pf}</span></div>
-    <div class="small" style="color:var(--muted);margin-top:6px">Automatické vypnutie: PF pod 1,0 po ${x.min_trades ?? 60} obchodoch, alebo čistá strata nad ${x.max_loss_eur ?? "—"} €.</div>`;
+    <div class="small" style="color:var(--muted);margin-top:6px">Obchoduje sa len pri čerstvom otočení systému, takže pozície pribúdajú postupne.
+      Automatické vypnutie: čistá strata nad ${x.max_loss_eur ?? "—"} €, alebo PF pod 1,0 po ${x.min_trades ?? 3000} obchodoch.</div>`;
 }
 
 // --- watchlist: what the bot sees per coin, so a quiet bot is visibly alive ---
@@ -1071,9 +1079,9 @@ const FIELDS = {
     ["regime_exit", "Reagovať na zvrat trhového režimu", ""],
     ["explore_enabled", "Skúšobný režim (obchodovať aj vo „vákuu“)", "Shorty na odraze v 4h poklese s desatinovým rizikom. Vypne sa sám, ak po poplatkoch prerába (PF pod 1 po 20 obchodoch alebo strata nad 1 % rozpočtu)."],
     ["explore_risk_scale", "Skúšobný režim: podiel bežného rizika", "0,1 = desatina rizika hlavnej stratégie."],
-    ["active_enabled", "Aktívny režim (5+ obchodov denne)", "Parabolic SAR na 4h grafe na širšom výbere mincí, vždy v trhu (pri otočení obráti pozíciu). Vlastný účet, desatinové riziko. Po poplatkoch zhruba na nule - vypne sa sám, ak prerába (PF pod 1 po 60 obchodoch alebo strata nad 2 % rozpočtu)."],
-    ["active_coins", "Aktívny režim: počet mincí", "Viac mincí = viac obchodov. 20 mincí ≈ 9 obratov denne (na reálnych dátach za posledných 60 dní). Zmena platí po reštarte aplikácie."],
-    ["active_risk_scale", "Aktívny režim: podiel bežného rizika", "0,1 = desatina rizika hlavnej stratégie."],
+    ["active_enabled", "Aktívny režim - trendové portfólio (~13 obchodov denne)", "12 trendových systémov na 2h-8h grafoch, na širšom výbere mincí. Vlastné štatistiky. Vypne sa sám pri čistej strate nad 25 % rozpočtu."],
+    ["active_coins", "Aktívny režim: počet mincí", "Viac mincí = viac obchodov. Odporúčané 20. Zmena platí po reštarte aplikácie."],
+    ["active_risk_pct", "Aktívny režim: riziko na obchod (% kapitálu)", "Základ pred úpravou podľa volatility trhu (×0,25 až ×1,5). Naraz býva otvorených ~100 pozícií, preto je riziko na jednu malé. 0,02 % ≈ medián +20 %/rok, typický prepad 11-15 %; 0,03 % ≈ +30 %/rok, prepad 16-21 %."],
     ["volume_exit", "Zavrieť zisk, keď objem vyschne", "V zisku a objem je 2 sviečky pod polovicou priemeru - hybná sila vyprchala, zisk sa uzamkne."],
     ["volume_exit_min_r", "Objemový exit od zisku (R)", ""],
   ],

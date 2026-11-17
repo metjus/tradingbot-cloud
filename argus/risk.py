@@ -22,6 +22,8 @@ from .strategy.base import Signal
 @dataclass(slots=True)
 class RiskLimits:
     risk_per_trade_pct: float = 0.5        # % of trading capital risked per trade
+    #: ceiling on the summed risk of all open trend-portfolio positions
+    active_max_open_risk_pct: float = 8.0
     max_risk_per_trade_pct: float = 2.0    # absolute ceiling (config cannot exceed)
     daily_max_loss_pct: float = 2.0        # stop opening after this daily drawdown
     max_open_positions: int = 4
@@ -45,7 +47,7 @@ class RiskLimits:
     #: per-sleeve caps (open positions, entries per day, max fee share of R)
     sleeve_caps: dict = field(default_factory=lambda: {
         "ai": (1, 12, 0.15),
-        "active": (30, 60, 0.10)})
+        "active": (300, 200, 0.15)})
 
     def effective_risk_pct(self) -> float:
         return min(self.risk_per_trade_pct, self.max_risk_per_trade_pct)
@@ -65,6 +67,9 @@ class AccountState:
     explore_today: int = 0
     sleeve_open: dict = field(default_factory=dict)    # sleeve -> open positions
     sleeve_today: dict = field(default_factory=dict)   # sleeve -> entries today
+    #: risk % at stake in the main strategy only (None = use open_risk_pct)
+    main_open_risk_pct: float | None = None
+    sleeve_risk: dict = field(default_factory=dict)    # sleeve -> open risk %
 
     @property
     def daily_pl_pct(self) -> float:
@@ -182,8 +187,11 @@ class RiskSupervisor:
                 vetoes.append(
                     f"už {aligned} pozícií v smere {signal.direction} - krypto sa hýbe "
                     f"spolu, ďalšia by len zväčšila tú istú stávku")
-        if account.trades_today >= L.max_daily_trades:
-            vetoes.append(f"max. počet obchodov za deň ({account.trades_today})")
+        # the daily trade cap is the main strategy's; trial accounts have
+        # their own daily caps above
+        main_today = account.trades_today - sum(account.sleeve_today.values())
+        if not signal.exploration and main_today >= L.max_daily_trades:
+            vetoes.append(f"max. počet obchodov za deň ({main_today})")
         if spread_pct is not None and spread_pct > L.max_spread_pct:
             vetoes.append(f"spread {spread_pct:.3f}% nad limitom {L.max_spread_pct}%")
 
@@ -192,10 +200,19 @@ class RiskSupervisor:
             vetoes.append("nulový obchodovateľný kapitál")
 
         risk_pct = L.effective_risk_pct() * max(0.0, min(1.0, signal.risk_scale))
-        if account.open_risk_pct + risk_pct > L.daily_max_loss_pct:
-            vetoes.append(
-                f"otvorené riziko {account.open_risk_pct:.2f}% + nové {risk_pct:.2f}% "
-                f"by prekročilo denný limit {L.daily_max_loss_pct}%")
+        if not signal.exploration:
+            main_open = (account.main_open_risk_pct if account.main_open_risk_pct is not None
+                         else account.open_risk_pct)
+            if main_open + risk_pct > L.daily_max_loss_pct:
+                vetoes.append(
+                    f"otvorené riziko {main_open:.2f}% + nové {risk_pct:.2f}% "
+                    f"by prekročilo denný limit {L.daily_max_loss_pct}%")
+        elif signal.sleeve == "active":
+            # the trend portfolio holds ~100 small positions: its own ceiling
+            cur = account.sleeve_risk.get("active", 0.0)
+            if cur + risk_pct > L.active_max_open_risk_pct:
+                vetoes.append(f"aktívny režim: otvorené riziko {cur:.2f}% by prekročilo "
+                              f"strop {L.active_max_open_risk_pct}%")
 
         lev = max(1.0, min(L.leverage, L.max_leverage))
 

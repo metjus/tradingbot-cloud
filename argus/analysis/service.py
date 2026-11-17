@@ -19,6 +19,7 @@ from ..marketdata.model import Candle, Timeframe
 from ..monitoring.health import HealthMonitor, Status
 from ..risk import AccountState
 from ..strategy.base import MarketContext
+from ..strategy.trend_portfolio import HISTORY_H1
 from ..ta.features import compute_features
 
 log = logging.getLogger(__name__)
@@ -80,6 +81,10 @@ class AnalysisService:
                     if f5 is not None:
                         payload["features_m5"] = f5
                     self._bus.publish(DECISION_EVENT, payload)
+                    for sc, v in result.extra:
+                        self._bus.publish(DECISION_EVENT, {
+                            **payload, "verdict": "enter", "best": sc.as_dict(),
+                            "risk": v.as_dict(), "evaluated": []})
                 self.evaluations += 1
                 self._health.heartbeat("analysis", Status.OK,
                                        f"{len(self.watch)} mincí sledovaných, "
@@ -127,6 +132,10 @@ class AnalysisService:
                             features=features, regime=Regime.UNCERTAIN,
                             sentiment=sentiment, spread_pct=spread)
         ctx.extras["btc_trend"] = self._btc_trend(symbol)
+        # long 1h history for the trend portfolio, loaded lazily (only when
+        # one of its 2h-8h bars has just closed)
+        ctx.extras["h1_loader"] = lambda: self._db.get_candles(symbol, Timeframe.H1,
+                                                                limit=HISTORY_H1)
         self.last_vol_fade[symbol] = self._vol_fade(candles.get(Timeframe.H4) or [])
         result = self._engine.evaluate(ctx, account)
         self.last_regime[symbol] = result.regime

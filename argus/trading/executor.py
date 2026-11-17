@@ -134,11 +134,18 @@ class ExecutionService:
     def _manage_stops(self, symbol: str, price: float) -> None:
         """Apply adaptive exit rules (see exits.py). Stops only tighten."""
         from ..strategy.futures import FLIP_EXIT_NAMES
+        from ..strategy.trend_portfolio import FLIP_STATE
         for pos in list(self.portfolio.positions.values()):
             if pos.symbol != symbol or pos.client_order_id in self._closing:
                 continue
             if pos.strategy in FLIP_EXIT_NAMES:
-                continue           # exits by its own reversal signal + safety stop
+                # exits only when its system points the other way (+ safety stop)
+                st = FLIP_STATE.get((pos.strategy, pos.symbol))
+                if st is not None and st == (-1 if pos.direction == "LONG" else 1):
+                    self._closing.add(pos.client_order_id)
+                    self._db.audit("trade", f"{symbol}: systém sa otočil - výstup ({pos.strategy})")
+                    self.broker.close_position(pos.client_order_id, "signal_flip")
+                continue
             sentiment = self.sentiment_provider(symbol) if self.sentiment_provider else None
             regime = self.regime_provider(symbol) if self.regime_provider else None
             fade = self.vol_fade_provider(symbol) if self.vol_fade_provider else None
@@ -203,18 +210,22 @@ class ExecutionService:
             return
         from ..strategy.futures import FLIP_EXIT_NAMES, SLEEVE_OF
         sleeve = sig.get("sleeve") or ""
-        mine = [p for p in self.portfolio.positions.values()
-                if p.symbol == symbol and (SLEEVE_OF.get(p.strategy) or "") == sleeve]
+        flip = sig.get("strategy") in FLIP_EXIT_NAMES
+
+        def mine() -> list:
+            # one position per coin and account; the trend portfolio runs 12
+            # independent systems, so there it is one per coin and SYSTEM
+            return [p for p in self.portfolio.positions.values() if p.symbol == symbol and (
+                p.strategy == sig.get("strategy") if flip
+                else (SLEEVE_OF.get(p.strategy) or "") == sleeve)]
         # a flip strategy reverses: close its open position first
-        if mine and sig.get("strategy") in FLIP_EXIT_NAMES:
-            for p in mine:
+        if flip:
+            for p in mine():
                 if p.direction != sig["direction"] and p.client_order_id not in self._closing:
                     self._closing.add(p.client_order_id)
                     self.broker.close_position(p.client_order_id, "signal_flip")
-            mine = [p for p in self.portfolio.positions.values()
-                    if p.symbol == symbol and (SLEEVE_OF.get(p.strategy) or "") == sleeve]
-        if mine:
-            return  # one position per coin and account
+        if mine():
+            return
         # NOTE live: an exchange nets positions per contract, so separate
         # accounts on the same coin need sub-accounts before going live
         coid = new_client_order_id()
@@ -235,8 +246,10 @@ class ExecutionService:
             quantity=risk["quantity"], stop_loss=sig["stop_loss"],
             take_profit=sig["take_profit"], strategy=sig["strategy"],
             leverage=risk.get("leverage", 1.0),
-            # trial sleeves always rest as limits (the AI's level IS the trade)
-            entry="limit" if sig.get("sleeve") == "ai" else self.entry_order,
+            # the AI's level IS the trade (limit); the trend portfolio enters at
+            # market as researched (a resting limit misses the best flips)
+            entry={"ai": "limit", "active": "market"}.get(sig.get("sleeve") or "",
+                                                          self.entry_order),
             limit_price=float(sig.get("entry") or 0.0),
             expire_s=float(tf_s)))
 

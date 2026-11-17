@@ -274,10 +274,11 @@ class Engine:
     # --- exploration (skúšobný režim) guard ---------------------------------
     EXPLORE_MIN_TRADES = 20
     EXPLORE_MAX_LOSS_PCT = 1.0      # of the bot budget, net of fees
-    # the busy active sleeve needs more trades before a verdict (break-even
-    # strategies hit PF < 1 by chance in small samples) and a wider loss cap
-    SLEEVE_MIN_TRADES = {"active": 60}
-    SLEEVE_MAX_LOSS_PCT = {"active": 2.0}
+    # the trend portfolio: its trades cluster (win rate ~36 %) - 40 % of all
+    # 500-trade windows of a PF 1.43 history have PF < 1 - so the PF verdict
+    # waits ~8 months; the loss cap catches a real breakdown earlier
+    SLEEVE_MIN_TRADES = {"active": 3000}
+    SLEEVE_MAX_LOSS_PCT = {"active": 25.0}
 
     SLEEVE_SETTING = {"explore": "explore_enabled", "ai": "ai_trader_enabled",
                       "active": "active_enabled"}
@@ -287,7 +288,8 @@ class Engine:
         st = self.portfolio.explore_stats(sleeve)
         rs = self.runtime
         scale = {"explore": rs["explore_risk_scale"], "ai": rs["ai_risk_scale"],
-                 "active": rs["active_risk_scale"]}[sleeve]
+                 "active": rs["active_risk_pct"] * self.decision_engine.active_vol_k
+                 / max(1e-9, rs["risk_per_trade_pct"])}[sleeve]
         if sleeve == "explore":
             max_open, max_daily = (self.risk.limits.max_explore_positions,
                                    self.risk.limits.max_explore_daily)
@@ -301,8 +303,37 @@ class Engine:
                    "max_daily": max_daily, "max_open": max_open,
                    "disabled_reason": self._sleeve_off_reason.get(sleeve)})
         if sleeve == "active":
-            st["coins"] = rs["active_coins"]
+            from .strategy.futures import ACTIVE_STRATEGIES
+            st.update({"coins": rs["active_coins"], "systems": len(ACTIVE_STRATEGIES),
+                       "system_labels": [s.label for s in ACTIVE_STRATEGIES],
+                       "vol_factor": round(self.decision_engine.active_vol_k, 2),
+                       "market_vol_pct": round(self._market_vol * 100, 2)
+                       if self._market_vol else None,
+                       "base_risk_pct": rs["active_risk_pct"]})
+            from .strategy.trend_portfolio import FLIP_STATE
+            names = {s.name for s in ACTIVE_STRATEGIES}
+            sides = [v for (n, sym), v in FLIP_STATE.items()
+                     if n in names and sym in self.crypto_symbols]
+            st["trend_long"], st["trend_short"] = sides.count(1), sides.count(-1)
         return st
+
+    _market_vol: float | None = None
+
+    def update_market_vol(self) -> float:
+        """Median 30-day std of daily returns across the traded coins (from
+        local 1h candles, UTC days) -> risk multiplier of the trend portfolio."""
+        from .strategy.trend_portfolio import market_vol_factor
+        import statistics
+        vols = []
+        for sym in self.crypto_symbols:
+            bars = self.db.get_candles(sym, Timeframe.H1, limit=24 * 32)
+            closes = [b.close for b in bars if b.ts % 86400 == 82800]
+            if len(closes) >= 21:
+                rets = [closes[i] / closes[i - 1] - 1 for i in range(1, len(closes))][-30:]
+                vols.append(statistics.pstdev(rets))
+        self._market_vol = statistics.median(vols) if vols else None
+        self.decision_engine.active_vol_k = market_vol_factor(self._market_vol)
+        return self.decision_engine.active_vol_k
 
     def _check_explore(self) -> None:
         """Switch a trial account off once it demonstrably loses AFTER fees:
@@ -459,7 +490,7 @@ class Engine:
         self.decision_engine.explore_enabled = rs["explore_enabled"] and v.futures
         self.decision_engine.explore_risk_scale = rs["explore_risk_scale"]
         self.decision_engine.active_enabled = rs["active_enabled"] and v.futures
-        self.decision_engine.active_risk_scale = rs["active_risk_scale"]
+        self.decision_engine.active_risk_pct = rs["active_risk_pct"]
         self.executor.entry_order = rs["entry_order"]
         ep = self.executor.exit_params
         ep.enabled = rs["adaptive_exits"]
@@ -598,10 +629,14 @@ class Engine:
         return top
 
     async def _rerank_loop(self) -> None:
+        n = 0
         while True:
-            await asyncio.sleep(24 * 3600)
+            await asyncio.sleep(3600)
+            n += 1
             try:
-                self.rerank_universe()
+                self.update_market_vol()
+                if n % 24 == 0:
+                    self.rerank_universe()
             except Exception as exc:
                 log.warning("universe re-rank failed: %s", exc)
 
@@ -650,7 +685,8 @@ class Engine:
         if venue(self.runtime["fee_venue"]).futures and self.crypto_symbols:
             from .marketdata.kraken_futures import fetch_history
             for sym in self.crypto_symbols:
-                for days, res in ((4, "15m"), (50, "1h"), (90, "4h")):
+                # 1h: 150 days - the trend portfolio's 8h systems need EMA200
+                for days, res in ((4, "15m"), (150, "1h"), (90, "4h")):
                     try:
                         bars = await fetch_history(sym, days, res)
                         if bars:
@@ -700,6 +736,10 @@ class Engine:
                 self._info.update({k: v for k, v in self.info().items()
                                    if k in ("provider", "symbols")})
             await self._backfill()
+            try:
+                self.update_market_vol()
+            except Exception as exc:
+                log.warning("market volatility unavailable: %s", exc)
             for p in self.providers:
                 p.start()
             if self.ticker is not None:

@@ -48,6 +48,9 @@ class DecisionResult:
     risk: RiskVerdict | None = None
     evaluated: list[ScoredSignal] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    #: further approved entries of the active trend portfolio on this bar
+    #: (several of its systems can flip on the same coin at once)
+    extra: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -74,9 +77,11 @@ class DecisionEngine:
         self.explore_enabled = False
         #: runtime scale applied to exploration risk (overrides the strategy's)
         self.explore_risk_scale = 0.1
-        #: active mode (busy paper sleeve) on/off and its risk scale
+        #: active mode (trend portfolio) on/off, its risk per trade (% of
+        #: capital) and the market-volatility multiplier set by the engine
         self.active_enabled = False
-        self.active_risk_scale = 0.1
+        self.active_risk_pct = 0.02
+        self.active_vol_k = 1.0
         #: coins allowed to open trades (top by 30-day volume); None = all
         self.allowed_symbols: set[str] | None = None
 
@@ -169,7 +174,10 @@ class DecisionEngine:
                     continue
             elif strat.exploration and not self.explore_enabled:
                 continue
-            if self.selector is not None and not self.selector.is_enabled(strat.name, ctx.symbol):
+            # the trend portfolio is judged as a whole (its wins cluster, a
+            # per-coin PF on a few trades is noise) - no per-coin pruning
+            if self.selector is not None and not strat.any_coin \
+                    and not self.selector.is_enabled(strat.name, ctx.symbol):
                 continue
             try:
                 sig = strat.evaluate(ctx)
@@ -183,8 +191,11 @@ class DecisionEngine:
                 res.notes.append(f"{strat.name}: invalid SL/TP layout, discarded")
                 continue
             if sig.exploration:
-                sig.risk_scale = (self.active_risk_scale if sig.sleeve == "active"
-                                  else self.explore_risk_scale)
+                if sig.sleeve == "active":
+                    base = max(1e-9, self.risk.limits.effective_risk_pct())
+                    sig.risk_scale = self.active_risk_pct * self.active_vol_k / base
+                else:
+                    sig.risk_scale = self.explore_risk_scale
             res.evaluated.append(self.score(sig, ctx))
 
         if not res.evaluated:
@@ -195,6 +206,11 @@ class DecisionEngine:
         # validated strategies always win over a trial signal on the same bar
         res.evaluated.sort(key=lambda s: (not s.signal.exploration, s.score), reverse=True)
         res.best = res.evaluated[0]
+        for other in res.evaluated[1:]:
+            if other.signal.sleeve == "active":
+                v = self.risk.check(other.signal, account, ctx.spread_pct)
+                if v.approved:
+                    res.extra.append((other, v))
 
         # a trial signal is judged by its live result, not by the score
         # heuristic; the risk supervisor (with its own trial caps) still applies

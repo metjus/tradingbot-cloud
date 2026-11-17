@@ -119,15 +119,33 @@ def test_only_top_coins_may_trade_and_rerank(tmp_path):
     assert e.decision_engine.allowed_symbols == {"BTC/USD", "ETH/USD"}
 
 
-def test_active_account_needs_60_trades_before_a_verdict(tmp_path):
+def test_active_account_is_judged_on_loss_not_on_a_short_pf(tmp_path):
     e = _engine(tmp_path)
-    e.runtime.update({"budget_eur": 10_000.0})
-    _add_trades(e, [1.0, -1.2] * 25, strategy="psar_active_4h")   # 50 trades, PF 0.83
+    e.runtime.update({"budget_eur": 1000.0})
+    _add_trades(e, [1.0, -1.2] * 300, strategy="trend_st10_3_4h_f")   # 600 trades, PF 0.83
     e._check_explore()
-    assert e.runtime["active_enabled"] is True                    # too early to judge
-    _add_trades(e, [1.01, -1.21] * 6, strategy="psar_active_4h")   # 62 trades
+    assert e.runtime["active_enabled"] is True          # clustered wins: too early
+    _add_trades(e, [-200.0], strategy="trend_ema21_50_4h_f")         # net -260 < -25 %
     e._check_explore()
     assert e.runtime["active_enabled"] is False
     st = e.explore_status("active")
-    assert st["min_trades"] == 60 and "prerába" in st["disabled_reason"]
-    assert e.runtime["explore_enabled"] is True                    # other books untouched
+    assert st["min_trades"] == 3000 and "limit" in st["disabled_reason"]
+    assert st["systems"] == 12 and e.runtime["explore_enabled"] is True
+
+
+def test_market_vol_from_local_candles(tmp_path):
+    import time as _t
+    from argus.marketdata.model import Candle, Timeframe
+    e = _engine(tmp_path)
+    e.crypto_symbols = ["BTC/USD", "ETH/USD"]
+    now = int(_t.time()) // 86400 * 86400
+    for sym in e.crypto_symbols:
+        bars, p = [], 100.0
+        for k in range(24 * 31):
+            ts = now - (24 * 31 - k) * 3600
+            if ts % 86400 == 82800:
+                p *= 1.07 if (ts // 86400) % 2 else 1 / 1.07    # +-7 % a day: wild
+            bars.append(Candle(sym, Timeframe.H1, ts, p, p, p, p, 1.0))
+        e.db.upsert_candles(bars)
+    k = e.update_market_vol()
+    assert 0.25 <= k < 0.6 and e.decision_engine.active_vol_k == k
