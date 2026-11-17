@@ -41,6 +41,7 @@ from .risk import RiskSupervisor
 from .strategy.base import Signal
 from .ta import indicators as ind
 from .ta.features import compute_features
+from .ta.tv import tv_summary
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +55,9 @@ SYSTEM = (
     "the way an experienced scalper does: when a breakout is forming you place a "
     "LONG limit somewhat BELOW the current price (buy the dip into it); when a "
     "drop is forming you place a SHORT limit somewhat ABOVE it (sell the bounce). "
+    "You also get the states of popular TradingView indicators (Supertrend, UT "
+    "Bot, PSAR, Hull, Ichimoku, Squeeze Momentum, WaveTrend, MACD); treat them "
+    "as context to weigh, not as rules - none of them is reliable on its own. "
     "If the picture is unclear, choppy or the move already happened, answer "
     "'none' - staying out is a valid, often the best, decision. Fees are about "
     "0.04 % per round trip when both orders rest as limits and up to 0.14 % "
@@ -116,6 +120,12 @@ def build_brief(symbol: str, m15: list[Candle], h1: list[Candle], h4: list[Candl
             trend = "up" if f.ema21 > f.ema50 else "down"
             lines.append(f"{name}: trend {trend} close {_fmt(f.close)} EMA21 {_fmt(f.ema21)} "
                          f"EMA50 {_fmt(f.ema50)} RSI {f.rsi14 or 0:.0f}")
+    # popular TradingView indicators as extra context (not rules: on their
+    # own none of them was profitable in our 2-year test)
+    for name, bars in (("15m", m15), ("1h", h1)):
+        tv = tv_summary(bars[-200:]) if bars else None
+        if tv:
+            lines.append(f"TradingView indicators {name}: {tv}")
     if funding_h is not None:
         lines.append(f"funding per hour {funding_h * 100:+.4f}% (positive = longs pay)")
     lines.append("last 48 x 15m candles (oldest first): time open high low close volume")

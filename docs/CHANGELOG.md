@@ -1,5 +1,19 @@
 # Zoznam zmien
 
+## 1.2.x - indikátory z TradingView pre AI tradera
+
+- 10 najpopulárnejších indikátorov z TradingView prepísaných do bota
+  (podľa ich zverejnených vzorcov): Supertrend, UT Bot, Parabolic SAR,
+  Chandelier Exit, SSL Channel, Hull MA, Ichimoku, Squeeze Momentum
+  (LazyBear), WaveTrend (LazyBear), MACD.
+- Otestované ako samostatné stratégie na 2 rokoch dát (15 mincí, 15m/1h/4h,
+  reálne poplatky): **ani jeden nie je lepší ako hlavná stratégia**; z 60
+  variantov boli v pluse v oboch rokoch iba 3, a to len tesne (PF
+  1,02-1,03), na 15m prerábajú všetky. Preto sa podľa nich priamo
+  neobchoduje.
+- AI trader ich aktuálny stav dostáva pri každom rozhodnutí (15m aj 1h)
+  ako ďalší kontext - posúdi ich ako trader, ktorý sa pozrie na graf.
+
 ## 1.2.x - AI trader
 
 - **AI trader**: jazykový model (Claude / GPT / Gemini podľa nastavenia)

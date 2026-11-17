@@ -171,3 +171,28 @@ async def test_without_key_it_waits_and_spends_nothing(tmp_path):
     rec = await ai.decide("BTC/USD")
     assert rec["action"] == "skip" and "kľúč" in rec["reason"]
     assert llm.calls == 0
+
+
+def test_brief_includes_tradingview_indicator_states():
+    import math
+    bars = [Candle("BTC/USD", Timeframe.M15, 1_700_000_000 + i * 900,
+                   100 + 5 * math.sin(i / 9), 101 + 5 * math.sin(i / 9),
+                   99 + 5 * math.sin(i / 9), 100.3 + 5 * math.sin(i / 9), 10.0 + i % 7)
+            for i in range(200)]
+    txt = build_brief("BTC/USD", bars, bars, [], 100.0, None, None, [])
+    line = next(l for l in txt.splitlines() if l.startswith("TradingView indicators 15m"))
+    for name in ("Supertrend", "UT Bot", "PSAR", "Hull55", "Ichimoku", "Squeeze",
+                 "WaveTrend", "MACD"):
+        assert name in line
+
+
+def test_tv_indicators_match_trend_direction():
+    from argus.ta.tv import hull_slope, psar, supertrend, utbot
+    import numpy as np
+    n = 200
+    c = np.linspace(100, 160, n)                 # clean uptrend
+    h, l = c + 0.5, c - 0.5
+    assert supertrend(h, l, c) == 1 and utbot(h, l, c) == 1
+    assert psar(h, l) == 1 and hull_slope(c) == 1
+    c2 = c[::-1].copy()                          # clean downtrend
+    assert supertrend(c2 + 0.5, c2 - 0.5, c2) == -1 and psar(c2 + 0.5, c2 - 0.5) == -1
