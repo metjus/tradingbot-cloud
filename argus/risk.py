@@ -45,7 +45,7 @@ class RiskLimits:
     #: per-sleeve caps (open positions, entries per day, max fee share of R)
     sleeve_caps: dict = field(default_factory=lambda: {
         "ai": (1, 12, 0.15),
-        "active": (20, 40, 0.10)})
+        "active": (30, 60, 0.10)})
 
     def effective_risk_pct(self) -> float:
         return min(self.risk_per_trade_pct, self.max_risk_per_trade_pct)

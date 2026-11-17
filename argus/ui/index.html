@@ -634,7 +634,7 @@ async function refreshActive(){
     ? `${sdot("profit")}<b>zapnutý</b> · riziko ${x.risk_pct}% na obchod`
     : `${sdot("warn")}<b>vypnutý</b>${x.disabled_reason ? ` - ${esc(x.disabled_reason)}` : ""}`;
   el.innerHTML = `<div style="margin-bottom:6px">${state}</div>
-    <div style="color:var(--text2);margin-bottom:8px">Parabolic SAR na 4h grafe, ${x.coins ?? 15} najobchodovanejších mincí,
+    <div style="color:var(--text2);margin-bottom:8px">Parabolic SAR na 4h grafe, ${x.coins ?? 20} najobchodovanejších mincí,
       vždy v trhu - pri otočení SAR sa pozícia obráti. Cieľ 5+ obchodov denne. V teste po poplatkoch
       zhruba na nule s veľkými výkyvmi, preto vlastný účet a desatinové riziko.</div>
     <div class="list-item"><span>Obchody</span><span class="spacer"></span><span class="mono">${x.trades ?? 0} (dnes ${x.today ?? 0}, otvorené ${x.open ?? 0}/${x.max_open ?? "—"})</span></div>
@@ -1072,7 +1072,7 @@ const FIELDS = {
     ["explore_enabled", "Skúšobný režim (obchodovať aj vo „vákuu“)", "Shorty na odraze v 4h poklese s desatinovým rizikom. Vypne sa sám, ak po poplatkoch prerába (PF pod 1 po 20 obchodoch alebo strata nad 1 % rozpočtu)."],
     ["explore_risk_scale", "Skúšobný režim: podiel bežného rizika", "0,1 = desatina rizika hlavnej stratégie."],
     ["active_enabled", "Aktívny režim (5+ obchodov denne)", "Parabolic SAR na 4h grafe na širšom výbere mincí, vždy v trhu (pri otočení obráti pozíciu). Vlastný účet, desatinové riziko. Po poplatkoch zhruba na nule - vypne sa sám, ak prerába (PF pod 1 po 60 obchodoch alebo strata nad 2 % rozpočtu)."],
-    ["active_coins", "Aktívny režim: počet mincí", "Viac mincí = viac obchodov. 15 mincí ≈ 7 obchodov denne. Zmena platí po reštarte aplikácie."],
+    ["active_coins", "Aktívny režim: počet mincí", "Viac mincí = viac obchodov. 20 mincí ≈ 9 obratov denne (na reálnych dátach za posledných 60 dní). Zmena platí po reštarte aplikácie."],
     ["active_risk_scale", "Aktívny režim: podiel bežného rizika", "0,1 = desatina rizika hlavnej stratégie."],
     ["volume_exit", "Zavrieť zisk, keď objem vyschne", "V zisku a objem je 2 sviečky pod polovicou priemeru - hybná sila vyprchala, zisk sa uzamkne."],
     ["volume_exit_min_r", "Objemový exit od zisku (R)", ""],

@@ -6,10 +6,12 @@ Hlavná stratégia (trend_rider_4h na top 5 mincí) robí len pár obchodov
 mesačne. Kto chce, aby bot obchodoval každý deň, má teraz **aktívny režim**:
 - **Parabolic SAR na 4h grafe**, vždy v trhu - keď sa SAR otočí, pozícia
   sa obráti (long ↔ short); bezpečnostný stop 3 ATR,
-- obchoduje **15 najobchodovanejších mincí** (nastaviteľné 5-20), nielen top 5,
-- v teste na 2 rokoch dát Kraken Futures **~7-8 obchodov denne**,
+- obchoduje **20 najobchodovanejších mincí** (objem nad 1 mil. $ denne,
+  nastaviteľné 5-30), nielen top 5,
+- na reálnych dátach za posledných 60 dní **~9 obratov denne** (12 mincí
+  dalo 5,9 - preto 20),
 - **vlastný účet** (vlastné štatistiky, nezaberá miesto hlavnej stratégii),
-  **desatinové riziko** (0,2 % na obchod pri 2 %), max. 20 otvorených pozícií.
+  **desatinové riziko** (0,2 % na obchod pri 2 %), max. 30 otvorených pozícií.
 
 **Úprimne:** po poplatkoch vyšiel zhruba na nule (PF 1,14 v prvom roku,
 1,03 v druhom) s veľkými výkyvmi. Nie je to stroj na peniaze - je to

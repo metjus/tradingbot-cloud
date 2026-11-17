@@ -552,7 +552,10 @@ class Engine:
         # active mode trades a wider set; the focused strategy only the top n
         want = max(n + 3, rs["active_coins"] if rs["active_enabled"] else 0)
         try:
-            uni = await fetch_universe(limit=want, rank_by_30d=True)
+            # the wider active set goes down to 1 M$/day (positions there are
+            # tiny: a tenth of the risk); the focused top n stay the giants
+            uni = await fetch_universe(limit=want, rank_by_30d=True,
+                                       min_volume_usd=1e6 if want > n + 3 else 2e6)
         except Exception as exc:
             log.warning("universe fetch failed: %s", exc)
             self.db.audit("data", f"Automatický výber mincí zlyhal: {exc}", "warning")

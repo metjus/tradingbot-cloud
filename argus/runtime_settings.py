@@ -69,7 +69,7 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     "explore_risk_scale": (0.1, float, 0.05, 0.3),
     # active mode (paper): busy break-even-ish sleeve, 5+ trades a day
     "active_enabled": (True, bool, None, None),
-    "active_coins": (15, int, 5, 20),
+    "active_coins": (20, int, 5, 30),
     "active_risk_scale": (0.1, float, 0.05, 0.5),
     # AI trader: an LLM decides limit levels on the 15m chart every 30 min
     "ai_trader_enabled": (True, bool, None, None),
