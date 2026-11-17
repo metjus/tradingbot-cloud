@@ -384,3 +384,49 @@ async def test_universe_excludes_non_crypto_by_venue_category():
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
         uni = await fetch_universe(client=c)
     assert [u["symbol"] for u in uni] == ["BTC/USD"]
+
+
+
+async def test_universe_ranks_by_30_day_volume():
+    import httpx
+    from argus.marketdata.kraken_futures import fetch_universe
+
+    def handler(req):
+        p = req.url.path
+        if p.endswith("/instruments"):
+            return httpx.Response(200, json={"instruments": []})
+        if "/charts/" in p:
+            # ETH: big 30-day volume, SOL: one big day only (24h spike)
+            per_day = {"PF_ETHUSD": 9e8, "PF_SOLUSD": 1e7, "PF_XBTUSD": 2e9}
+            pf = p.split("/")[-2]
+            return httpx.Response(200, json={"candles": [
+                {"time": i * 86400000, "open": "1", "high": "1", "low": "1",
+                 "close": "1", "volume": str(per_day[pf])} for i in range(30)]})
+        tick = lambda s, vq: {"symbol": s, "volumeQuote": vq, "vol24h": 1,
+                              "bid": 100.0, "ask": 100.01, "last": 100.0}
+        return httpx.Response(200, json={"tickers": [
+            tick("PF_XBTUSD", 2e9), tick("PF_SOLUSD", 5e9), tick("PF_ETHUSD", 8e8)]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        by24 = await fetch_universe(limit=2, client=c)
+        by30 = await fetch_universe(limit=2, client=c, rank_by_30d=True)
+    assert [u["symbol"] for u in by24] == ["SOL/USD", "BTC/USD"]      # spike wins on 24h
+    assert [u["symbol"] for u in by30] == ["BTC/USD", "ETH/USD"]      # steady volume wins
+
+
+def test_decision_engine_skips_coins_outside_top():
+    from argus.decision import DecisionEngine
+    from argus.analysis.regime import Regime
+    from argus.strategy.base import Strategy
+
+    class Always(Strategy):
+        name = "trend_rider_4h"
+        def evaluate(self, ctx):
+            return sig("LONG", 100.0, 98.0, 110.0)
+
+    eng = DecisionEngine(RiskSupervisor(limits()), strategies=[Always()], enter_threshold=0)
+    bars = h4_series(230, trend=0.4)
+    ctx = ctx_for(bars)
+    eng.allowed_symbols = {"BTC/USD"}
+    res = eng.evaluate(ctx, account())          # ctx symbol SOL/USD
+    assert res.verdict == "no_signal" and "iba sledovaná" in res.notes[0]

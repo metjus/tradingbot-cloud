@@ -74,6 +74,8 @@ class DecisionEngine:
         self.explore_enabled = False
         #: runtime scale applied to exploration risk (overrides the strategy's)
         self.explore_risk_scale = 0.1
+        #: coins allowed to open trades (top by 30-day volume); None = all
+        self.allowed_symbols: set[str] | None = None
 
     # --- scoring ----------------------------------------------------------
     def score(self, sig: Signal, ctx: MarketContext) -> ScoredSignal:
@@ -154,6 +156,9 @@ class DecisionEngine:
     def evaluate(self, ctx: MarketContext, account: AccountState) -> DecisionResult:
         ctx.regime = detect_regime(ctx.f(M15), ctx.f(H1))
         res = DecisionResult(symbol=ctx.symbol, regime=ctx.regime, verdict="no_signal")
+        if self.allowed_symbols is not None and ctx.symbol not in self.allowed_symbols:
+            res.notes.append("mimo top mincí podľa objemu - iba sledovaná")
+            return res
 
         for strat in self.strategies:
             if strat.exploration and not self.explore_enabled:

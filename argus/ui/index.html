@@ -633,9 +633,14 @@ async function refreshWatch(){
   const next = coins[0].next_h4_close;
   const mins = Math.max(0, Math.round((next * 1000 - Date.now()) / 60000));
   const hhmm = new Date(next * 1000).toLocaleTimeString("sk-SK", {hour: "2-digit", minute: "2-digit"});
+  let rg = null;
+  try { rg = await api("/api/riskguard"); } catch(e){}
+  const riskLine = rg ? `<div style="margin-top:6px">Riziko na obchod: <b class="mono">${rg.risk_effective_pct}%</b>
+    ${rg.guard_active ? `<span class="warn">(poistka aktívna: ${esc(rg.guard_reason || "")}; nastavené ${rg.risk_setting_pct}%)</span>` : ""}
+    · max. ${rg.max_open_positions} ${rg.max_open_positions === 1 ? "pozícia" : "pozície"} naraz · výsledok stratégie naživo: ${rg.trades} obch.${rg.profit_factor != null ? `, PF ${rg.profit_factor}` : ""}</div>` : "";
   head.innerHTML = `Bot vstupuje pri prekrížení trendu na <b>4h grafe</b>. Ďalšia 4h sviečka sa uzavrie
     o <b class="mono">${hhmm}</b> (o ${mins >= 60 ? Math.floor(mins/60) + " h " : ""}${mins % 60} min).
-    <span style="color:var(--muted)">Vyhodnotení: ${w.evaluations}. Pauzy bez obchodu niekoľko hodín až dní sú normálne.</span>`;
+    <span style="color:var(--muted)">Vyhodnotení: ${w.evaluations}. Pauzy bez obchodu niekoľko hodín až dní sú normálne.</span>${riskLine}`;
   el.innerHTML = coins.map(c => {
     const base = esc(c.symbol.split("/")[0]);
     if (c.ema_gap_pct == null)
@@ -645,9 +650,12 @@ async function refreshWatch(){
     const near = c.atr_pct ? gap < c.atr_pct * 0.5 : gap < 0.5;
     const why = !c.next_signal_allowed
       ? (c.next_signal === "LONG"
-          ? (c.above_ema200 === false ? "pod 4h EMA200" : "BTC v poklese")
-          : (c.above_ema200 ? "nad 4h EMA200" : "BTC v raste"))
+          ? (c.above_ema200 === false ? "pod EMA200" : "BTC klesá")
+          : (c.above_ema200 ? "nad EMA200" : "BTC rastie"))
       : "";
+    if (c.tradable === false)
+      return `<div class="list-item" style="gap:8px;flex-wrap:nowrap;white-space:nowrap;opacity:.55">
+        <b style="min-width:52px">${base}</b><span class="small">iba sledovaná (mimo top podľa objemu)</span></div>`;
     return `<div class="list-item" style="gap:8px;flex-wrap:nowrap;white-space:nowrap">
       <b style="min-width:52px">${base}</b>
       <span class="${up ? "profit" : "loss"}" title="EMA21 voči EMA50 na 4h">${up ? "trend hore" : "trend dole"}</span>
@@ -655,7 +663,7 @@ async function refreshWatch(){
       <span class="spacer"></span>
       ${c.next_signal_allowed
         ? `<span class="${near ? "warn" : "small"}" title="smer, ktorý by otvorilo najbližšie prekríženie">${near ? "blízko " : ""}${c.next_signal}</span>`
-        : `<span class="small" style="color:var(--muted)" title="filter by ďalší signál zablokoval">${c.next_signal} blok.: ${why}</span>`}
+        : `<span class="small" style="color:var(--muted)" title="filter by ďalší signál (${c.next_signal}) zablokoval: ${why}">${c.next_signal}: ${why}</span>`}
     </div>`;
   }).join("");
 }
@@ -1011,9 +1019,10 @@ const FIELDS = {
   "form-money": [
     ["budget_eur", "Rozpočet bota (€)", "Koľko peňazí smie bot celkovo použiť. Riziko na obchod sa počíta z tejto sumy."],
     ["max_position_eur", "Max. na jednu pozíciu (€)", "Najväčšia suma vložená do jedného obchodu."],
-    ["risk_per_trade_pct", "Riziko na obchod (%)", "Koľko % rozpočtu stratíš, ak obchod skončí na stop-losse. Max. 1 %."],
+    ["risk_per_trade_pct", "Riziko na obchod (%)", "Koľko % rozpočtu stratíš, ak obchod skončí na stop-losse. Odporúčané 2 % (~štvrtina Kellyho optima pre top 5 mincí a 1 pozíciu naraz). Max. 2 %."],
+    ["risk_guard", "Poistka rizika podľa výsledkov", "Ak naživo stratégia po 20 obchodoch prerába (PF pod 1,0) alebo má prepad 20 %, riziko sa samo zníži na 1 %, kým sa výsledky nezlepšia."],
     ["daily_max_loss_pct", "Denný limit straty (%)", "Po dosiahnutí bot v daný deň neotvára nové obchody."],
-    ["max_open_positions", "Max. otvorených pozícií", ""],
+    ["max_open_positions", "Max. otvorených pozícií", "Odporúčané 1: jeden obchod naraz mal v teste polovičné prepady pri vyššom výnose."],
     ["max_daily_trades", "Max. obchodov za deň", ""],
     ["min_rr_net", "Min. zisk/riziko po poplatkoch", "Napr. 1,3 = cieľový zisk po poplatkoch musí byť aspoň 1,3× väčší ako riziko."],
     ["enter_threshold", "Min. skóre na vstup (0-100)", "Vyššie = menej, ale kvalitnejších obchodov."],
@@ -1042,7 +1051,7 @@ const FIELDS = {
   ],
   "form-symbols": [
     ["auto_symbols", "Vyberať mince automaticky podľa likvidity", "Najobchodovanejšie perpetual kontrakty podľa 24h objemu v USD; meme mince a tokenizované akcie sa vynechávajú."],
-    ["max_symbols", "Max. počet mincí", ""],
+    ["max_symbols", "Počet obchodovaných mincí", "Top mince podľa objemu za posledných 30 dní (každý deň sa preradia). Odporúčané 5."],
     ["symbols", "Vlastné mince (oddelené čiarkou)", "Použijú sa, keď je automatický výber vypnutý. Napr. BTC/USD, ETH/USD, SOL/USD. Zmena platí po reštarte aplikácie."],
   ],
   "form-llm": [

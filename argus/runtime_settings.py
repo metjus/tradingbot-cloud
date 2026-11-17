@@ -30,9 +30,13 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     "budget_eur": (10_000.0, float, 10.0, 10_000_000.0),
     "max_position_eur": (2_500.0, float, 5.0, 10_000_000.0),
     # risk
-    "risk_per_trade_pct": (1.0, float, 0.05, 1.0),        # hard ceiling 1 %
+    # 2 % ~ a quarter of the Kelly fraction measured for the focused setup
+    # (top-5 coins by 30-day volume, one position at a time); hard ceiling 2 %
+    "risk_per_trade_pct": (2.0, float, 0.05, 2.0),
+    # evidence guard: back to 1 % when live results contradict the backtest
+    "risk_guard": (True, bool, None, None),
     "daily_max_loss_pct": (2.0, float, 0.2, 5.0),
-    "max_open_positions": (4, int, 1, 20),
+    "max_open_positions": (1, int, 1, 20),
     "max_daily_trades": (15, int, 1, 200),
     "min_rr_net": (1.3, float, 1.0, 5.0),                 # reward/risk AFTER costs
     "enter_threshold": (70.0, float, 50.0, 95.0),
@@ -72,7 +76,7 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     # instruments (applied on next engine start)
     "symbols": (DEFAULT_SYMBOLS, list, None, None),
     "auto_symbols": (True, bool, None, None),   # pick coins by 24h USD volume
-    "max_symbols": (15, int, 2, 20),
+    "max_symbols": (5, int, 2, 20),
     # ML
     "ml_auto_activate": (True, bool, None, None),
     # LLM news analysis (one provider active at a time)
@@ -132,6 +136,8 @@ class RuntimeSettings:
             migrated = True
         if self._migrate_ai_budget(stored):
             migrated = True
+        if self._migrate_focus(stored):
+            migrated = True
         for k, v in stored.items():
             if k in SCHEMA:
                 try:
@@ -156,6 +162,22 @@ class RuntimeSettings:
             stored["allow_short"] = True
             changed = True
         return changed
+
+    @staticmethod
+    def _migrate_focus(stored: dict) -> bool:
+        """Focused profile (validated on 2y data, see CHANGELOG): top-5 coins
+        by volume, one position at a time, 2 % risk with the evidence guard.
+        Only values still equal to the previous defaults are changed."""
+        if not stored or "risk_guard" in stored:
+            return False
+        changed = False
+        for key, old, new in (("max_symbols", 15, 5), ("max_open_positions", 4, 1),
+                              ("risk_per_trade_pct", 1.0, 2.0)):
+            if stored.get(key) == old:
+                stored[key] = new
+                changed = True
+        stored["risk_guard"] = True
+        return True                       # marker written either way
 
     @staticmethod
     def _migrate_ai_budget(stored: dict) -> bool:

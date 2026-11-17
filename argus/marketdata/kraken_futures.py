@@ -215,12 +215,25 @@ EXCLUDED_CATEGORIES = {"xStocks", "Equities", "Commodities", "Stablecoin",
                        "Pre-IPO", "Forex", "Meme", "Real-world assets"}
 
 
+async def volume_30d_usd(pf: str, client: httpx.AsyncClient, days: int = 30) -> float | None:
+    """Sum of daily USD volume over the last ``days`` days (charts API, 1d)."""
+    r = await client.get(f"{BASE}/api/charts/v1/trade/{pf}/1d",
+                         params={"from": int(time.time()) - (days + 1) * 86400})
+    r.raise_for_status()
+    rows = (r.json().get("candles") or [])[-days:]
+    if not rows:
+        return None
+    return sum(float(x["volume"]) * float(x["close"]) for x in rows)
+
+
 async def fetch_universe(min_volume_usd: float = 2_000_000.0,
                          limit: int = 12,
-                         client: httpx.AsyncClient | None = None) -> list[dict]:
-    """Liquid crypto perpetuals by 24h USD volume (for automatic coin
-    selection). Returns [{symbol, pf, volume_quote, vol24h, last}] sorted
-    by USD volume, meme coins and tokenised stocks excluded."""
+                         client: httpx.AsyncClient | None = None,
+                         rank_by_30d: bool = False) -> list[dict]:
+    """Liquid crypto perpetuals, meme coins and tokenised stocks excluded.
+    Returns [{symbol, pf, volume_quote, vol24h, last, volume_30d}] sorted by
+    USD volume - over the last 30 days when ``rank_by_30d`` (steadier than
+    one day: a single pump cannot buy a place), else over 24 h."""
     own = client is None
     client = client or httpx.AsyncClient(timeout=15.0)
     try:
@@ -255,6 +268,20 @@ async def fetch_universe(min_volume_usd: float = 2_000_000.0,
             out.append({"symbol": from_pf(pf), "pf": pf, "volume_quote": vq,
                         "vol24h": float(t.get("vol24h") or 0), "last": float(t.get("last") or 0)})
         out.sort(key=lambda x: -x["volume_quote"])
+        if rank_by_30d:
+            cand = out[:max(limit * 3, 12)]
+            for u in cand:
+                try:
+                    u["volume_30d"] = await volume_30d_usd(u["pf"], client)
+                except Exception as exc:        # fall back to 24h x 30
+                    log.warning("30d volume for %s unavailable: %s", u["pf"], exc)
+                    u["volume_30d"] = None
+                await asyncio.sleep(0.15)
+            for u in cand:
+                if u["volume_30d"] is None:
+                    u["volume_30d"] = u["volume_quote"] * 30
+            cand.sort(key=lambda x: -x["volume_30d"])
+            return cand[:limit]
         return out[:limit]
     finally:
         if own:

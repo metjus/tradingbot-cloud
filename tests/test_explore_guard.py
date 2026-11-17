@@ -70,3 +70,50 @@ def test_ai_account_has_its_own_kill_switch(tmp_path):
     st = e.explore_status("ai")
     assert st["trades"] == 20 and "prerába" in st["disabled_reason"]
     assert e.explore_status("explore")["trades"] == 0           # separate books
+
+
+
+def test_risk_guard_cuts_risk_when_live_results_disagree(tmp_path):
+    e = _engine(tmp_path)
+    e.runtime.update({"risk_per_trade_pct": 2.0})
+    assert e.risk.limits.effective_risk_pct() == 2.0
+    _add_trades(e, [10.0, -15.0] * 10, strategy="trend_rider_4h")   # PF 0.67 after 20
+    assert e.check_risk_guard() is True
+    assert e.risk.limits.effective_risk_pct() == 1.0
+    st = e.risk_status()
+    assert st["guard_active"] and st["risk_setting_pct"] == 2.0 and st["trades"] == 20
+    # recovery: strong results lift the guard again
+    _add_trades(e, [40.0] * 15, strategy="trend_rider_4h")
+    assert e.check_risk_guard() is False
+    assert e.risk.limits.effective_risk_pct() == 2.0
+
+
+def test_risk_guard_ignores_trial_and_legacy_trades(tmp_path):
+    e = _engine(tmp_path)
+    _add_trades(e, [-30.0] * 30, strategy="momentum")            # old 5m spot strategy
+    _add_trades(e, [-5.0] * 30, strategy="pullback_short_4h")    # trial account
+    assert e.check_risk_guard() is False
+    assert e.main_strategy_stats()["trades"] == 0
+
+
+def test_risk_guard_drawdown_trigger(tmp_path):
+    e = _engine(tmp_path)
+    _add_trades(e, [-700.0, -700.0, -700.0], strategy="trend_rider_4h")  # 21 % DD of 10k
+    assert e.check_risk_guard() is True
+    assert "prepad" in e.risk_status()["guard_reason"]
+
+
+def test_only_top_coins_may_trade_and_rerank(tmp_path):
+    import time as _t
+    from argus.marketdata.model import Candle, Timeframe
+    e = _engine(tmp_path)
+    e.crypto_symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "DOGE/USD"]
+    e.runtime.update({"max_symbols": 2})
+    e.decision_engine.allowed_symbols = {"BTC/USD", "SOL/USD"}
+    now = int(_t.time()) // 3600 * 3600
+    vols = {"BTC/USD": 100.0, "ETH/USD": 90.0, "SOL/USD": 5.0, "DOGE/USD": 1.0}
+    for sym, v in vols.items():
+        e.db.upsert_candles([Candle(sym, Timeframe.H1, now - k * 3600, 10, 10, 10, 10, v)
+                             for k in range(1, 24 * 25)])
+    assert e.rerank_universe() == ["BTC/USD", "ETH/USD"]
+    assert e.decision_engine.allowed_symbols == {"BTC/USD", "ETH/USD"}

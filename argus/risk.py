@@ -22,7 +22,7 @@ from .strategy.base import Signal
 @dataclass(slots=True)
 class RiskLimits:
     risk_per_trade_pct: float = 0.5        # % of trading capital risked per trade
-    max_risk_per_trade_pct: float = 1.0    # absolute ceiling (config cannot exceed)
+    max_risk_per_trade_pct: float = 2.0    # absolute ceiling (config cannot exceed)
     daily_max_loss_pct: float = 2.0        # stop opening after this daily drawdown
     max_open_positions: int = 4
     max_daily_trades: int = 15
@@ -39,12 +39,12 @@ class RiskLimits:
     max_aligned_positions: int = 3         # positions in the SAME direction
                                            # (crypto moves together - this caps
                                            # stacking one big correlated bet)
-    max_explore_positions: int = 2         # trial (exploration) positions at once
+    max_explore_positions: int = 1         # trial (exploration) positions at once
     max_explore_daily: int = 3             # trial entries per day (fee budget)
     max_explore_cost_share: float = 0.05   # trial: fees may eat at most 5 % of R
     #: per-sleeve caps (open positions, entries per day, max fee share of R)
     sleeve_caps: dict = field(default_factory=lambda: {
-        "ai": (2, 12, 0.15)})
+        "ai": (1, 12, 0.15)})
 
     def effective_risk_pct(self) -> float:
         return min(self.risk_per_trade_pct, self.max_risk_per_trade_pct)

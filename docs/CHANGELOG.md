@@ -1,5 +1,31 @@
 # Zoznam zmien
 
+## 1.2.x - zameranie: top 5 mincí, 1 obchod naraz, riziko 2 % s poistkou
+
+**Oprava predchádzajúcich odhadov.** Prepočet presne tak, ako bot obchoduje
+naživo (4h sviečky od 00:00 UTC, limity pozícií, zložené úročenie, 10 000
+simulácií roka), ukázal, že skoršie čísla (~14-28 %/rok) boli príliš
+optimistické. Pôvodné nastavenie (15 mincí, max. 4 pozície, 1 %): medián
+asi +3 %/rok a 44 % šanca stratového roka.
+
+**Nové nastavenie** (otestované bez pohľadu do budúcnosti - mince sa
+vyberajú podľa objemu za posledných 30 dní, ako to robí bot):
+- obchoduje sa iba **top 5 mincí podľa 30-dňového objemu v USD**, každý
+  deň sa preradia; ďalšie 3 sa len sledujú,
+- **1 pozícia naraz** (polovičné prepady pri vyššom výnose),
+- **riziko 2 % na obchod** (~štvrtina Kellyho optima), strop 2 %,
+- **poistka rizika**: ak naživo PF po 20 obchodoch klesne pod 1,0 alebo
+  prepad dosiahne 20 %, riziko sa samo zníži na 1 %; späť pri PF 1,2+.
+
+Výsledok simulácie pri 2 %: medián +31 %/rok, 5 % najhorších rokov
+-13 %, šanca stratového roka 14 %, typický prepad 14 %, prepad nad 30 %
+v 2 % prípadov. Neistota: 83 obchodov za 2 roky - PF je v 90 % intervale
+0,8-2,7; poistka rizika je preto súčasťou nastavenia.
+
+Ak si tieto hodnoty v Settings nikdy nemenil, aktualizácia ich nastaví
+sama; vlastné hodnoty ostanú. Skúšobný režim a AI trader majú tiež
+max. 1 pozíciu.
+
 ## 1.2.x - indikátory z TradingView pre AI tradera
 
 - 10 najpopulárnejších indikátorov z TradingView prepísaných do bota

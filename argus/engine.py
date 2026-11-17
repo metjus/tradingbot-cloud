@@ -58,6 +58,8 @@ class Engine:
         self.ticker: KrakenTicker | KrakenFuturesTicker | None = None
         self._explore_off_reason: str | None = None
         self._sleeve_off_reason: dict[str, str] = {}
+        self._risk_guard_active = False
+        self._risk_guard_reason: str | None = None
         self.universe: list[dict] = []     # auto-selected coins (futures)
         self.last_tick: dict[str, Tick] = {}
         self.forming_m1: dict[str, Candle] = {}
@@ -164,6 +166,10 @@ class Engine:
 
         self.apply_settings()
         self.runtime.on_change(lambda _changed: self.apply_settings())
+        try:
+            self.check_risk_guard()
+        except Exception as exc:                 # never block start-up
+            log.warning("risk guard check failed: %s", exc)
 
         from .cloud.sync import CloudSync
         self.cloud: CloudSync | None = None
@@ -313,12 +319,76 @@ class Engine:
                 self.db.audit("risk", msg, "warning", st)
                 self.bus.publish("system_alert", {"category": "bot_state", "message": msg})
 
+    # --- evidence guard: risk back to 1 % when live results disagree --------
+    GUARD_RISK_PCT = 1.0
+    GUARD_MIN_TRADES = 20
+
+    def main_strategy_stats(self) -> dict:
+        """Closed trades of the validated strategy only (not the trial
+        accounts, not legacy 5m spot trades): PF and drawdown, net of fees."""
+        from sqlalchemy import select
+        from .db.schema import Trade
+        names = [s.name for s in self.decision_engine.strategies if not s.exploration]
+        with self.db.session() as s:
+            pls = s.execute(select(Trade.pl).where(
+                Trade.status == "closed", Trade.mode == "paper",
+                Trade.strategy.in_(names)).order_by(Trade.id)).scalars().all()
+        pls = [p or 0.0 for p in pls]
+        pos, neg = sum(p for p in pls if p > 0), -sum(p for p in pls if p <= 0)
+        eq = peak = self.settings.paper_equity
+        dd = 0.0
+        for p in pls:
+            eq += p
+            peak = max(peak, eq)
+            dd = max(dd, (peak - eq) / peak * 100.0 if peak > 0 else 0.0)
+        cur_dd = (peak - eq) / peak * 100.0 if peak > 0 else 0.0
+        return {"trades": len(pls), "profit_factor": round(pos / neg, 2) if neg > 0 else None,
+                "net_pl": round(sum(pls), 2), "max_dd_pct": round(dd, 1),
+                "current_dd_pct": round(cur_dd, 1)}
+
+    def check_risk_guard(self) -> bool:
+        """Turn the guard on when the live edge is not confirmed: PF < 1.0
+        after 20 trades, or a 20 % drawdown of the strategy; off again at
+        PF >= 1.2 and drawdown under 10 %."""
+        st = self.main_strategy_stats()
+        pf = st["profit_factor"] if st["profit_factor"] is not None else 99.0
+        was = self._risk_guard_active
+        if not was and ((st["trades"] >= self.GUARD_MIN_TRADES and pf < 1.0)
+                        or st["current_dd_pct"] >= 20.0):
+            self._risk_guard_active = True
+            self._risk_guard_reason = (
+                f"PF {pf:.2f} po {st['trades']} obchodoch" if st["current_dd_pct"] < 20.0
+                else f"prepad stratégie {st['current_dd_pct']:.1f} %")
+        elif was and pf >= 1.2 and st["current_dd_pct"] < 10.0:
+            self._risk_guard_active = False
+            self._risk_guard_reason = None
+        if was != self._risk_guard_active:
+            msg = (f"Poistka rizika ZAPNUTÁ ({self._risk_guard_reason}): riziko na obchod "
+                   f"znížené na {self.GUARD_RISK_PCT:g} %, kým výsledky nepotvrdia edge."
+                   if self._risk_guard_active else
+                   "Poistka rizika vypnutá: výsledky sa zlepšili, riziko späť na nastavenú hodnotu.")
+            self.db.audit("risk", msg, "warning" if self._risk_guard_active else "info", st)
+            self.bus.publish("system_alert", {"category": "bot_state", "message": msg})
+            self.apply_settings()
+        return self._risk_guard_active
+
+    def risk_status(self) -> dict:
+        st = self.main_strategy_stats()
+        return {**st, "guard_enabled": self.runtime["risk_guard"],
+                "guard_active": self._risk_guard_active,
+                "guard_reason": self._risk_guard_reason,
+                "risk_setting_pct": self.runtime["risk_per_trade_pct"],
+                "risk_effective_pct": self.risk.limits.effective_risk_pct(),
+                "max_open_positions": self.runtime["max_open_positions"],
+                "tradable": sorted(self.decision_engine.allowed_symbols or [])}
+
     async def _explore_guard_loop(self, q) -> None:
         while True:
             ev = await q.get()
             if isinstance(ev.data, dict) and ev.data.get("kind") == "closed":
                 try:
                     self._check_explore()
+                    self.check_risk_guard()
                 except Exception as exc:
                     log.warning("explore guard failed: %s", exc)
 
@@ -357,6 +427,8 @@ class Engine:
                                    rs["slippage_pct"])
         L = self.risk.limits
         L.risk_per_trade_pct = rs["risk_per_trade_pct"]
+        if rs["risk_guard"] and self._risk_guard_active:
+            L.risk_per_trade_pct = min(L.risk_per_trade_pct, self.GUARD_RISK_PCT)
         L.daily_max_loss_pct = rs["daily_max_loss_pct"]
         L.max_open_positions = rs["max_open_positions"]
         L.max_daily_trades = rs["max_daily_trades"]
@@ -461,8 +533,9 @@ class Engine:
             return
         if "crypto_symbols" in self.settings.model_fields_set:
             return                     # explicit config (env/.env/tests) wins
+        n = rs["max_symbols"]
         try:
-            uni = await fetch_universe(limit=rs["max_symbols"])
+            uni = await fetch_universe(limit=n + 3, rank_by_30d=True)
         except Exception as exc:
             log.warning("universe fetch failed: %s", exc)
             self.db.audit("data", f"Automatický výber mincí zlyhal: {exc}", "warning")
@@ -474,8 +547,43 @@ class Engine:
         if "BTC/USD" not in syms:
             syms.insert(0, "BTC/USD")          # BTC data drives the trend filter
         self.crypto_symbols = syms
-        self.db.audit("data", f"Mince podľa likvidity (24h objem v USD): {', '.join(syms)}",
-                      data={u["symbol"]: round(u["volume_quote"]) for u in uni})
+        # trade only the top N by 30-day USD volume; the rest is watched so
+        # the daily re-ranking can promote it without a restart
+        self.decision_engine.allowed_symbols = {u["symbol"] for u in uni[:n]}
+        self.db.audit("data", "Obchodované mince (top podľa 30-dňového objemu v USD): "
+                      f"{', '.join(u['symbol'] for u in uni[:n])}; sledované navyše: "
+                      f"{', '.join(u['symbol'] for u in uni[n:]) or '-'}",
+                      data={u["symbol"]: round(u.get("volume_30d") or 0) for u in uni})
+
+    def rerank_universe(self) -> list[str] | None:
+        """Daily: re-rank the subscribed coins by 30-day USD volume from the
+        local 1h candles and update which ones may trade."""
+        if self.decision_engine.allowed_symbols is None:
+            return None
+        n = self.runtime["max_symbols"]
+        vol = {}
+        since = int(time.time()) - 30 * 86400
+        for sym in self.crypto_symbols:
+            bars = [b for b in self.db.get_candles(sym, Timeframe.H1, limit=24 * 31)
+                    if b.ts >= since]
+            if len(bars) >= 24 * 20:
+                vol[sym] = sum(b.volume * b.close for b in bars)
+        if len(vol) < n:
+            return None
+        top = sorted(vol, key=lambda s: -vol[s])[:n]
+        if set(top) != self.decision_engine.allowed_symbols:
+            self.db.audit("data", f"Nové poradie podľa 30-dňového objemu: obchodujem "
+                          f"{', '.join(top)}")
+        self.decision_engine.allowed_symbols = set(top)
+        return top
+
+    async def _rerank_loop(self) -> None:
+        while True:
+            await asyncio.sleep(24 * 3600)
+            try:
+                self.rerank_universe()
+            except Exception as exc:
+                log.warning("universe re-rank failed: %s", exc)
 
     def _build_providers(self) -> None:
         s = self.settings
@@ -612,6 +720,7 @@ class Engine:
         if self.cloud is not None:
             self.cloud.start()
         flush_task = asyncio.get_running_loop().create_task(self._flush_loop(), name="flush-loop")
+        rerank_task = asyncio.get_running_loop().create_task(self._rerank_loop(), name="rerank")
         explore_q = self.bus.subscribe("trade")
         explore_task = asyncio.get_running_loop().create_task(
             self._explore_guard_loop(explore_q), name="explore-guard")
@@ -643,6 +752,7 @@ class Engine:
             flush_task.cancel()
             data_task.cancel()
             explore_task.cancel()
+            rerank_task.cancel()
             self.analysis.stop()
             self.executor.stop()
             self.ai_trader.stop()

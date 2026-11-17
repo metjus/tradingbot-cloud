@@ -394,6 +394,13 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
             return {"enabled": False, "trades": 0}
         return engine.explore_status()
 
+    @app.get("/api/riskguard")
+    def api_riskguard() -> dict:
+        """Evidence guard + validated-strategy live stats + tradable coins."""
+        if engine is None:
+            return {"guard_active": False}
+        return engine.risk_status()
+
     @app.get("/api/ai")
     def api_ai() -> dict:
         """AI trader: status, recent decisions with reasons, trial account."""
@@ -407,7 +414,10 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         if engine is None:
             return {"coins": [], "evaluations": 0}
         a = engine.analysis
-        return {"coins": sorted(a.watch.values(), key=lambda w: w["symbol"]),
+        allowed = engine.decision_engine.allowed_symbols
+        coins = [{**w, "tradable": allowed is None or w["symbol"] in allowed}
+                 for w in a.watch.values()]
+        return {"coins": sorted(coins, key=lambda w: (not w["tradable"], w["symbol"])),
                 "evaluations": a.evaluations,
                 "strategies": [s.name for s in engine.decision_engine.strategies]}
 

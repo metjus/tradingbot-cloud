@@ -103,7 +103,7 @@ def test_runtime_settings_persist_validate_and_clamp(tmp_path):
     changed = rs.update({"budget_eur": 500, "max_position_eur": 900,
                          "risk_per_trade_pct": 5.0, "fee_venue": "kraken",
                          "symbols": "btc/usd, sol/usd"})
-    assert rs["risk_per_trade_pct"] == 1.0            # hard ceiling
+    assert rs["risk_per_trade_pct"] == 2.0            # hard ceiling
     assert rs["max_position_eur"] == 500               # cannot exceed budget
     assert rs["symbols"] == ["BTC/USD", "SOL/USD"]
     assert "fee_venue" in changed
@@ -400,14 +400,14 @@ def test_v13_risk_bump_only_for_untouched_default(tmp_path):
     from argus.db.database import Database
     from argus.db.schema import AppSetting
     from argus.runtime_settings import KEY, RuntimeSettings
-    # 1.2 store with the old default risk -> bumped to the validated 1 %
+    # 1.2 store with the old default risk -> 1 %, then the focus profile -> 2 %
     db = Database(tmp_path / "a.db")
     with db.session() as s:
         s.add(AppSetting(key=KEY, value={"fee_venue": "kraken_futures",
                                          "leverage": 3.0,
                                          "risk_per_trade_pct": 0.5}))
         s.commit()
-    assert RuntimeSettings(db)["risk_per_trade_pct"] == 1.0
+    assert RuntimeSettings(db)["risk_per_trade_pct"] == 2.0
     # a user-tuned value survives
     db2 = Database(tmp_path / "b.db")
     with db2.session() as s:
@@ -435,3 +435,30 @@ def test_ai_budget_default_and_migration(tmp_path):
                                          "llm_daily_budget_usd": 0.5}))
         s.commit()
     assert RuntimeSettings(db2)["llm_daily_budget_usd"] == 0.5
+
+
+def test_focus_profile_migration_only_touches_old_defaults(tmp_path):
+    from argus.db.database import Database
+    from argus.db.schema import AppSetting
+    from argus.runtime_settings import KEY, RuntimeSettings
+    db = Database(tmp_path / "f.db")
+    with db.session() as s:
+        s.add(AppSetting(key=KEY, value={"leverage": 3.0, "entry_order": "limit",
+                                         "ai_trader_enabled": True,
+                                         "max_symbols": 15, "max_open_positions": 4,
+                                         "risk_per_trade_pct": 1.0}))
+        s.commit()
+    rs = RuntimeSettings(db)
+    assert (rs["max_symbols"], rs["max_open_positions"], rs["risk_per_trade_pct"]) == (5, 1, 2.0)
+    assert rs["risk_guard"] is True
+    db2 = Database(tmp_path / "g.db")            # user's own values survive
+    with db2.session() as s:
+        s.add(AppSetting(key=KEY, value={"leverage": 3.0, "entry_order": "limit",
+                                         "ai_trader_enabled": True,
+                                         "max_symbols": 8, "max_open_positions": 2,
+                                         "risk_per_trade_pct": 0.7}))
+        s.commit()
+    rs2 = RuntimeSettings(db2)
+    assert (rs2["max_symbols"], rs2["max_open_positions"], rs2["risk_per_trade_pct"]) == (8, 2, 0.7)
+    rs2.update({"risk_per_trade_pct": 1.5})      # no second migration later
+    assert RuntimeSettings(db2)["risk_per_trade_pct"] == 1.5
