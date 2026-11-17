@@ -74,6 +74,9 @@ class DecisionEngine:
         self.explore_enabled = False
         #: runtime scale applied to exploration risk (overrides the strategy's)
         self.explore_risk_scale = 0.1
+        #: active mode (busy paper sleeve) on/off and its risk scale
+        self.active_enabled = False
+        self.active_risk_scale = 0.1
         #: coins allowed to open trades (top by 30-day volume); None = all
         self.allowed_symbols: set[str] | None = None
 
@@ -156,12 +159,15 @@ class DecisionEngine:
     def evaluate(self, ctx: MarketContext, account: AccountState) -> DecisionResult:
         ctx.regime = detect_regime(ctx.f(M15), ctx.f(H1))
         res = DecisionResult(symbol=ctx.symbol, regime=ctx.regime, verdict="no_signal")
-        if self.allowed_symbols is not None and ctx.symbol not in self.allowed_symbols:
-            res.notes.append("mimo top mincí podľa objemu - iba sledovaná")
-            return res
+        outside = self.allowed_symbols is not None and ctx.symbol not in self.allowed_symbols
 
         for strat in self.strategies:
-            if strat.exploration and not self.explore_enabled:
+            if outside and not strat.any_coin:
+                continue
+            if strat.any_coin:
+                if not self.active_enabled:
+                    continue
+            elif strat.exploration and not self.explore_enabled:
                 continue
             if self.selector is not None and not self.selector.is_enabled(strat.name, ctx.symbol):
                 continue
@@ -177,10 +183,13 @@ class DecisionEngine:
                 res.notes.append(f"{strat.name}: invalid SL/TP layout, discarded")
                 continue
             if sig.exploration:
-                sig.risk_scale = self.explore_risk_scale
+                sig.risk_scale = (self.active_risk_scale if sig.sleeve == "active"
+                                  else self.explore_risk_scale)
             res.evaluated.append(self.score(sig, ctx))
 
         if not res.evaluated:
+            if outside:
+                res.notes.append("mimo top mincí podľa objemu - iba sledovaná")
             return res
 
         # validated strategies always win over a trial signal on the same bar

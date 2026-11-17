@@ -394,6 +394,13 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
             return {"enabled": False, "trades": 0}
         return engine.explore_status()
 
+    @app.get("/api/active")
+    def api_active() -> dict:
+        """Active mode (busy paper account): result net of fees, kill rules."""
+        if engine is None:
+            return {"enabled": False, "trades": 0}
+        return engine.explore_status("active")
+
     @app.get("/api/riskguard")
     def api_riskguard() -> dict:
         """Evidence guard + validated-strategy live stats + tradable coins."""

@@ -1,5 +1,25 @@
 # Zoznam zmien
 
+## 1.2.x - aktívny režim: 5+ obchodov denne (paper)
+
+Hlavná stratégia (trend_rider_4h na top 5 mincí) robí len pár obchodov
+mesačne. Kto chce, aby bot obchodoval každý deň, má teraz **aktívny režim**:
+- **Parabolic SAR na 4h grafe**, vždy v trhu - keď sa SAR otočí, pozícia
+  sa obráti (long ↔ short); bezpečnostný stop 3 ATR,
+- obchoduje **15 najobchodovanejších mincí** (nastaviteľné 5-20), nielen top 5,
+- v teste na 2 rokoch dát Kraken Futures **~7-8 obchodov denne**,
+- **vlastný účet** (vlastné štatistiky, nezaberá miesto hlavnej stratégii),
+  **desatinové riziko** (0,2 % na obchod pri 2 %), max. 20 otvorených pozícií.
+
+**Úprimne:** po poplatkoch vyšiel zhruba na nule (PF 1,14 v prvom roku,
+1,03 v druhom) s veľkými výkyvmi. Nie je to stroj na peniaze - je to
+aktivita s malým rizikom. Vypne sa sám, ak po 60 obchodoch prerába (PF pod
+1,0) alebo strata presiahne 2 % rozpočtu. Dá sa vypnúť v Settings → Výstupy.
+
+Pred ostrým obchodovaním: burza spája pozície na rovnakom kontrakte, takže
+aktívny režim a hlavná stratégia na tej istej minci budú potrebovať
+samostatné sub-účty.
+
 ## 1.2.x - zameranie: top 5 mincí, 1 obchod naraz, riziko 2 % s poistkou
 
 **Oprava predchádzajúcich odhadov.** Prepočet presne tak, ako bot obchoduje

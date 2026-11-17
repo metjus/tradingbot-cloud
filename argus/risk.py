@@ -44,7 +44,8 @@ class RiskLimits:
     max_explore_cost_share: float = 0.05   # trial: fees may eat at most 5 % of R
     #: per-sleeve caps (open positions, entries per day, max fee share of R)
     sleeve_caps: dict = field(default_factory=lambda: {
-        "ai": (1, 12, 0.15)})
+        "ai": (1, 12, 0.15),
+        "active": (20, 40, 0.10)})
 
     def effective_risk_pct(self) -> float:
         return min(self.risk_per_trade_pct, self.max_risk_per_trade_pct)
@@ -163,7 +164,7 @@ class RiskSupervisor:
                 max_open, max_day, max_cost = L.sleeve_caps.get(sleeve, (1, 3, 0.05))
                 n_open = account.sleeve_open.get(sleeve, 0)
                 n_day = account.sleeve_today.get(sleeve, 0)
-                label = "AI trader" if sleeve == "ai" else sleeve
+                label = {"ai": "AI trader", "active": "aktívny režim"}.get(sleeve, sleeve)
             if n_open >= max_open:
                 vetoes.append(f"{label}: max. {max_open} pozície naraz")
             if n_day >= max_day:

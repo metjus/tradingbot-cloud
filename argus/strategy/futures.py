@@ -196,9 +196,57 @@ class PullbackShort4h(_H4Strategy):
 
 EXPLORATION_STRATEGIES: list[Strategy] = [PullbackShort4h()]
 
+class PsarFlip4h(_H4Strategy):
+    """ACTIVE MODE (aktívny režim, paper): Parabolic SAR on closed 4h bars,
+    always in the market - when the SAR flips, the position is reversed.
+    Safety stop 3 ATR, no take-profit and no adaptive exits (the flip is the
+    exit), exactly as tested.
+
+    Measured on 2y Kraken Futures data (17 coins, maker entry, real costs,
+    unlimited simultaneous positions): ~8 trades/day, PF 1.14 / 1.03, mean
+    +0.02 R per trade - essentially break-even with large swings; with
+    position caps it loses. It exists because the user wants a busy paper
+    bot (5+ trades a day) while the AI stays reserved for live trading; it
+    runs at a tenth of the normal risk, on its own account, with its own
+    kill switch.
+    """
+
+    name = "psar_active_4h"
+    exploration = True
+    any_coin = True
+    flip_exit = True
+    suited_regimes = tuple(Regime)
+    atr_stop = 3.0
+
+    def evaluate(self, ctx: MarketContext) -> Signal | None:
+        bars = self._new_h4(ctx)
+        f4 = ctx.f(H4)
+        if bars is None or len(bars) < 30 or f4 is None or f4.atr14 is None:
+            return None
+        from ..ta.tv import psar
+        import numpy as np
+        h = np.array([b.high for b in bars])
+        lo = np.array([b.low for b in bars])
+        now, before = psar(h, lo), psar(h[:-1], lo[:-1])
+        if now == before:
+            return None                      # no flip on this 4h bar
+        d = "LONG" if now == 1 else "SHORT"
+        price = _price(ctx) or bars[-1].close
+        stop = price - self.atr_stop * f4.atr14 if d == "LONG" \
+            else price + self.atr_stop * f4.atr14
+        tp = self._tp_from_rr(price, stop, TP_CAP_R, d)
+        sig = Signal(self.name, ctx.symbol, d, price, stop, tp, 0.5, [
+            f"Parabolic SAR (4h) sa otočil na {d}", "AKTÍVNY REŽIM: obrat pozície pri ďalšom otočení"],
+            timeframe=H4, exploration=True, risk_scale=0.1, sleeve="active")
+        return sig if sig.valid() else None
+
+
+ACTIVE_STRATEGIES: list[Strategy] = [PsarFlip4h()]
+FLIP_EXIT_NAMES = {s.name for s in ACTIVE_STRATEGIES if s.flip_exit}
+
 #: trial accounts: strategy name -> sleeve. Each sleeve has its own caps,
 #: its own result (net of fees) and its own automatic kill switch.
-SLEEVE_OF = {"pullback_short_4h": "explore", "ai_trader": "ai"}
+SLEEVE_OF = {"pullback_short_4h": "explore", "ai_trader": "ai", "psar_active_4h": "active"}
 EXPLORATION_NAMES = set(SLEEVE_OF)
 
 

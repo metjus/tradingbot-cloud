@@ -81,6 +81,10 @@ class Strategy(ABC):
     #: trial strategy without a validated edge: traded at a fraction of the
     #: normal risk, with its own caps and an automatic kill switch
     exploration: bool = False
+    #: may trade coins outside the focused top-N universe (active mode)
+    any_coin: bool = False
+    #: exits only by its own reversal signal + safety stop (no adaptive exits)
+    flip_exit: bool = False
     #: regimes this strategy is designed for; the decision engine
     #: penalises (not blocks) signals outside them
     suited_regimes: tuple[Regime, ...] = ()

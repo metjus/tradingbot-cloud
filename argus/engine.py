@@ -74,8 +74,10 @@ class Engine:
         self.selector = StrategySelector(audit=self.db.audit)
         strategies = None
         if venue(self.runtime["fee_venue"]).futures:
-            from .strategy.futures import EXPLORATION_STRATEGIES, FUTURES_STRATEGIES
-            strategies = list(FUTURES_STRATEGIES) + list(EXPLORATION_STRATEGIES)
+            from .strategy.futures import (ACTIVE_STRATEGIES, EXPLORATION_STRATEGIES,
+                                           FUTURES_STRATEGIES)
+            strategies = (list(FUTURES_STRATEGIES) + list(EXPLORATION_STRATEGIES)
+                          + list(ACTIVE_STRATEGIES))
         self.decision_engine = DecisionEngine(self.risk, strategies=strategies,
                                               enter_threshold=self.runtime["enter_threshold"],
                                               ml_scorer=ml_scorer, selector=self.selector)
@@ -272,14 +274,20 @@ class Engine:
     # --- exploration (skúšobný režim) guard ---------------------------------
     EXPLORE_MIN_TRADES = 20
     EXPLORE_MAX_LOSS_PCT = 1.0      # of the bot budget, net of fees
+    # the busy active sleeve needs more trades before a verdict (break-even
+    # strategies hit PF < 1 by chance in small samples) and a wider loss cap
+    SLEEVE_MIN_TRADES = {"active": 60}
+    SLEEVE_MAX_LOSS_PCT = {"active": 2.0}
 
-    SLEEVE_SETTING = {"explore": "explore_enabled", "ai": "ai_trader_enabled"}
-    SLEEVE_LABEL = {"explore": "Skúšobný režim", "ai": "AI trader"}
+    SLEEVE_SETTING = {"explore": "explore_enabled", "ai": "ai_trader_enabled",
+                      "active": "active_enabled"}
+    SLEEVE_LABEL = {"explore": "Skúšobný režim", "ai": "AI trader", "active": "Aktívny režim"}
 
     def explore_status(self, sleeve: str = "explore") -> dict:
         st = self.portfolio.explore_stats(sleeve)
         rs = self.runtime
-        scale = rs["explore_risk_scale"] if sleeve == "explore" else rs["ai_risk_scale"]
+        scale = {"explore": rs["explore_risk_scale"], "ai": rs["ai_risk_scale"],
+                 "active": rs["active_risk_scale"]}[sleeve]
         if sleeve == "explore":
             max_open, max_daily = (self.risk.limits.max_explore_positions,
                                    self.risk.limits.max_explore_daily)
@@ -287,10 +295,13 @@ class Engine:
             max_open, max_daily, _ = self.risk.limits.sleeve_caps[sleeve]
         st.update({"enabled": rs[self.SLEEVE_SETTING[sleeve]],
                    "risk_pct": round(rs["risk_per_trade_pct"] * scale, 3),
-                   "min_trades": self.EXPLORE_MIN_TRADES,
-                   "max_loss_eur": round(rs["budget_eur"] * self.EXPLORE_MAX_LOSS_PCT / 100.0, 2),
+                   "min_trades": self.SLEEVE_MIN_TRADES.get(sleeve, self.EXPLORE_MIN_TRADES),
+                   "max_loss_eur": round(rs["budget_eur"] * self.SLEEVE_MAX_LOSS_PCT.get(
+                       sleeve, self.EXPLORE_MAX_LOSS_PCT) / 100.0, 2),
                    "max_daily": max_daily, "max_open": max_open,
                    "disabled_reason": self._sleeve_off_reason.get(sleeve)})
+        if sleeve == "active":
+            st["coins"] = rs["active_coins"]
         return st
 
     def _check_explore(self) -> None:
@@ -301,14 +312,16 @@ class Engine:
             if not self.runtime[key]:
                 continue
             st = self.portfolio.explore_stats(sleeve)
-            max_loss = self.runtime["budget_eur"] * self.EXPLORE_MAX_LOSS_PCT / 100.0
+            max_loss = self.runtime["budget_eur"] * self.SLEEVE_MAX_LOSS_PCT.get(
+                sleeve, self.EXPLORE_MAX_LOSS_PCT) / 100.0
+            min_trades = self.SLEEVE_MIN_TRADES.get(sleeve, self.EXPLORE_MIN_TRADES)
             reason = None
-            if st["trades"] >= self.EXPLORE_MIN_TRADES and (st["profit_factor"] or 0) < 1.0:
+            if st["trades"] >= min_trades and (st["profit_factor"] or 0) < 1.0:
                 reason = (f"po {st['trades']} obchodoch prerába po poplatkoch "
                           f"(PF {st['profit_factor']}, čistý výsledok {st['net_pl']:+.2f} €)")
             elif st["net_pl"] <= -max_loss:
                 reason = (f"čistá strata {st['net_pl']:.2f} € prekročila limit "
-                          f"{max_loss:.2f} € (1 % rozpočtu)")
+                          f"{max_loss:.2f} €")
             if reason:
                 self._sleeve_off_reason[sleeve] = reason
                 if sleeve == "explore":
@@ -445,6 +458,8 @@ class Engine:
         self.decision_engine.enter_threshold = rs["enter_threshold"]
         self.decision_engine.explore_enabled = rs["explore_enabled"] and v.futures
         self.decision_engine.explore_risk_scale = rs["explore_risk_scale"]
+        self.decision_engine.active_enabled = rs["active_enabled"] and v.futures
+        self.decision_engine.active_risk_scale = rs["active_risk_scale"]
         self.executor.entry_order = rs["entry_order"]
         ep = self.executor.exit_params
         ep.enabled = rs["adaptive_exits"]
@@ -534,8 +549,10 @@ class Engine:
         if "crypto_symbols" in self.settings.model_fields_set:
             return                     # explicit config (env/.env/tests) wins
         n = rs["max_symbols"]
+        # active mode trades a wider set; the focused strategy only the top n
+        want = max(n + 3, rs["active_coins"] if rs["active_enabled"] else 0)
         try:
-            uni = await fetch_universe(limit=n + 3, rank_by_30d=True)
+            uni = await fetch_universe(limit=want, rank_by_30d=True)
         except Exception as exc:
             log.warning("universe fetch failed: %s", exc)
             self.db.audit("data", f"Automatický výber mincí zlyhal: {exc}", "warning")

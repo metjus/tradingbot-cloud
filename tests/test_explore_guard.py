@@ -117,3 +117,17 @@ def test_only_top_coins_may_trade_and_rerank(tmp_path):
                              for k in range(1, 24 * 25)])
     assert e.rerank_universe() == ["BTC/USD", "ETH/USD"]
     assert e.decision_engine.allowed_symbols == {"BTC/USD", "ETH/USD"}
+
+
+def test_active_account_needs_60_trades_before_a_verdict(tmp_path):
+    e = _engine(tmp_path)
+    e.runtime.update({"budget_eur": 10_000.0})
+    _add_trades(e, [1.0, -1.2] * 25, strategy="psar_active_4h")   # 50 trades, PF 0.83
+    e._check_explore()
+    assert e.runtime["active_enabled"] is True                    # too early to judge
+    _add_trades(e, [1.01, -1.21] * 6, strategy="psar_active_4h")   # 62 trades
+    e._check_explore()
+    assert e.runtime["active_enabled"] is False
+    st = e.explore_status("active")
+    assert st["min_trades"] == 60 and "prerába" in st["disabled_reason"]
+    assert e.runtime["explore_enabled"] is True                    # other books untouched

@@ -133,9 +133,12 @@ class ExecutionService:
 
     def _manage_stops(self, symbol: str, price: float) -> None:
         """Apply adaptive exit rules (see exits.py). Stops only tighten."""
+        from ..strategy.futures import FLIP_EXIT_NAMES
         for pos in list(self.portfolio.positions.values()):
             if pos.symbol != symbol or pos.client_order_id in self._closing:
                 continue
+            if pos.strategy in FLIP_EXIT_NAMES:
+                continue           # exits by its own reversal signal + safety stop
             sentiment = self.sentiment_provider(symbol) if self.sentiment_provider else None
             regime = self.regime_provider(symbol) if self.regime_provider else None
             fade = self.vol_fade_provider(symbol) if self.vol_fade_provider else None
@@ -198,8 +201,22 @@ class ExecutionService:
         if not can_enter(symbol):
             self._db.audit("trade", f"{symbol}: entry skipped (outside session)")
             return
-        if any(p.symbol == symbol for p in self.portfolio.positions.values()):
-            return  # one position per symbol
+        from ..strategy.futures import FLIP_EXIT_NAMES, SLEEVE_OF
+        sleeve = sig.get("sleeve") or ""
+        mine = [p for p in self.portfolio.positions.values()
+                if p.symbol == symbol and (SLEEVE_OF.get(p.strategy) or "") == sleeve]
+        # a flip strategy reverses: close its open position first
+        if mine and sig.get("strategy") in FLIP_EXIT_NAMES:
+            for p in mine:
+                if p.direction != sig["direction"] and p.client_order_id not in self._closing:
+                    self._closing.add(p.client_order_id)
+                    self.broker.close_position(p.client_order_id, "signal_flip")
+            mine = [p for p in self.portfolio.positions.values()
+                    if p.symbol == symbol and (SLEEVE_OF.get(p.strategy) or "") == sleeve]
+        if mine:
+            return  # one position per coin and account
+        # NOTE live: an exchange nets positions per contract, so separate
+        # accounts on the same coin need sub-accounts before going live
         coid = new_client_order_id()
         self._pending_entry[coid] = {
             "decision": decision, "stop_loss": sig["stop_loss"],

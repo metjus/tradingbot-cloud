@@ -148,6 +148,10 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
         </div>
         <div class="col-side">
           <div class="card">
+            <div class="label" style="margin-bottom:6px">Aktívny režim</div>
+            <div id="dash-active" class="small">—</div>
+          </div>
+          <div class="card">
             <div class="label" style="margin-bottom:6px">AI trader</div>
             <div id="dash-ai" class="small">—</div>
           </div>
@@ -619,6 +623,27 @@ async function refreshExplore(){
     <div class="small" style="color:var(--muted);margin-top:6px">Automatické vypnutie: PF pod 1,0 po ${x.min_trades} obchodoch, alebo čistá strata nad ${x.max_loss_eur} €.</div>`;
 }
 
+// --- active mode: busy paper account (PSAR 4h flip, wider coin set) ---
+async function refreshActive(){
+  let x;
+  try { x = await api("/api/active"); } catch(e){ return; }
+  const el = $("dash-active");
+  if (!el) return;
+  const pf = x.profit_factor != null ? x.profit_factor.toFixed(2) : "—";
+  const state = x.enabled
+    ? `${sdot("profit")}<b>zapnutý</b> · riziko ${x.risk_pct}% na obchod`
+    : `${sdot("warn")}<b>vypnutý</b>${x.disabled_reason ? ` - ${esc(x.disabled_reason)}` : ""}`;
+  el.innerHTML = `<div style="margin-bottom:6px">${state}</div>
+    <div style="color:var(--text2);margin-bottom:8px">Parabolic SAR na 4h grafe, ${x.coins ?? 15} najobchodovanejších mincí,
+      vždy v trhu - pri otočení SAR sa pozícia obráti. Cieľ 5+ obchodov denne. V teste po poplatkoch
+      zhruba na nule s veľkými výkyvmi, preto vlastný účet a desatinové riziko.</div>
+    <div class="list-item"><span>Obchody</span><span class="spacer"></span><span class="mono">${x.trades ?? 0} (dnes ${x.today ?? 0}, otvorené ${x.open ?? 0}/${x.max_open ?? "—"})</span></div>
+    <div class="list-item"><span>Výsledok po poplatkoch</span><span class="spacer"></span><span class="mono ${cls(x.net_pl)}">${fmtEur(x.net_pl ?? 0)}</span></div>
+    <div class="list-item"><span>Zaplatené poplatky</span><span class="spacer"></span><span class="mono">${(x.fees ?? 0).toFixed(2)} €</span></div>
+    <div class="list-item"><span>Profit factor</span><span class="spacer"></span><span class="mono ${x.profit_factor != null ? (x.profit_factor >= 1 ? "profit" : "loss") : ""}">${pf}</span></div>
+    <div class="small" style="color:var(--muted);margin-top:6px">Automatické vypnutie: PF pod 1,0 po ${x.min_trades ?? 60} obchodoch, alebo čistá strata nad ${x.max_loss_eur ?? "—"} €.</div>`;
+}
+
 // --- watchlist: what the bot sees per coin, so a quiet bot is visibly alive ---
 async function refreshWatch(){
   let w;
@@ -1046,6 +1071,9 @@ const FIELDS = {
     ["regime_exit", "Reagovať na zvrat trhového režimu", ""],
     ["explore_enabled", "Skúšobný režim (obchodovať aj vo „vákuu“)", "Shorty na odraze v 4h poklese s desatinovým rizikom. Vypne sa sám, ak po poplatkoch prerába (PF pod 1 po 20 obchodoch alebo strata nad 1 % rozpočtu)."],
     ["explore_risk_scale", "Skúšobný režim: podiel bežného rizika", "0,1 = desatina rizika hlavnej stratégie."],
+    ["active_enabled", "Aktívny režim (5+ obchodov denne)", "Parabolic SAR na 4h grafe na širšom výbere mincí, vždy v trhu (pri otočení obráti pozíciu). Vlastný účet, desatinové riziko. Po poplatkoch zhruba na nule - vypne sa sám, ak prerába (PF pod 1 po 60 obchodoch alebo strata nad 2 % rozpočtu)."],
+    ["active_coins", "Aktívny režim: počet mincí", "Viac mincí = viac obchodov. 15 mincí ≈ 7 obchodov denne. Zmena platí po reštarte aplikácie."],
+    ["active_risk_scale", "Aktívny režim: podiel bežného rizika", "0,1 = desatina rizika hlavnej stratégie."],
     ["volume_exit", "Zavrieť zisk, keď objem vyschne", "V zisku a objem je 2 sviečky pod polovicou priemeru - hybná sila vyprchala, zisk sa uzamkne."],
     ["volume_exit_min_r", "Objemový exit od zisku (R)", ""],
   ],
@@ -1469,6 +1497,8 @@ refreshWatch();
 setInterval(refreshWatch, 30000);
 refreshExplore();
 setInterval(refreshExplore, 30000);
+refreshActive();
+setInterval(refreshActive, 30000);
 refreshAI();
 setInterval(refreshAI, 30000);
 connectWs();

@@ -67,6 +67,10 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     # auto-off when it loses after fees
     "explore_enabled": (True, bool, None, None),
     "explore_risk_scale": (0.1, float, 0.05, 0.3),
+    # active mode (paper): busy break-even-ish sleeve, 5+ trades a day
+    "active_enabled": (True, bool, None, None),
+    "active_coins": (15, int, 5, 20),
+    "active_risk_scale": (0.1, float, 0.05, 0.5),
     # AI trader: an LLM decides limit levels on the 15m chart every 30 min
     "ai_trader_enabled": (True, bool, None, None),
     "ai_symbols": (["BTC/USD"], list, None, None),
@@ -91,7 +95,7 @@ CHOICES = {
     "llm_provider": ["none", "claude", "openai", "gemini"],
 }
 
-RESTART_REQUIRED = {"symbols", "fee_venue", "auto_symbols", "max_symbols"}
+RESTART_REQUIRED = {"symbols", "fee_venue", "auto_symbols", "max_symbols", "active_coins"}
 
 
 def _coerce(name: str, value: Any) -> Any:
