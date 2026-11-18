@@ -166,7 +166,7 @@ def test_executor_emergency_stop_closes_all(exec_env):
     svc._maybe_enter(decision_payload("BTC/USD"))
     assert len(portfolio.positions) == 0
     trades = portfolio.trade_history()
-    assert all(t["exit_reason"] == "manual_close" for t in trades)
+    assert all(t["exit_reason"] == "emergency_stop" for t in trades)
 
 
 def test_executor_respects_session_hours(exec_env, monkeypatch):

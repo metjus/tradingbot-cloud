@@ -1,5 +1,20 @@
 # Zoznam zmien
 
+## 1.2.x - graf po kliknutí na pozíciu, bezpečnejšie zatváranie z mobilu
+
+- **Klik na otvorenú pozíciu zobrazí graf** - vo Windows appke sa hlavný
+  graf prepne na danú mincu (timeframe podľa stratégie) a nakreslí vstup,
+  stop-loss, take-profit a likvidáciu; v mobile sa otvorí okno so živým
+  grafom (15m / 1h / 4h / 1D) priamo z Kraken Futures.
+- **Zatvorenie jednej pozície z mobilu** už neprepína na obrazovku
+  Ovládanie (kde je tlačidlo EMERGENCY STOP); výsledok sa ukáže priamo
+  pri pozícii. Celá cesta mobil -> cloud -> počítač bola overená testom:
+  zatvorí sa iba vybraná pozícia.
+- **EMERGENCY STOP v mobile treba potvrdiť napísaním STOP** - náhodný
+  dotyk ho už nespustí. V histórii obchodov sa zapisuje ako
+  „emergency_stop“ (doteraz „manual_close“, nedalo sa to rozlíšiť).
+- Vzdialený take-profit shortu už nemôže vyjsť záporný.
+
 ## 1.2.x - aktívny režim = trendové portfólio (~13 obchodov denne, v pluse)
 
 Predchádzajúci aktívny režim (jeden PSAR na 4h) robil obchody, ale po

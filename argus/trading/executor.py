@@ -368,7 +368,9 @@ class ExecutionService:
             self.risk.halt("emergency stop")
             closed, failed = 0, 0
             for pos in list(self.portfolio.positions.values()):
-                ok = self.broker.close_position(pos.client_order_id, "manual_close")
+                # own exit reason: the history must show it was the emergency
+                # stop, not a manual close of one position
+                ok = self.broker.close_position(pos.client_order_id, "emergency_stop")
                 closed += ok
                 failed += not ok
             self._set_state("stopped",

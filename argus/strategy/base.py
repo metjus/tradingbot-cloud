@@ -95,4 +95,8 @@ class Strategy(ABC):
 
     def _tp_from_rr(self, entry: float, stop: float, rr: float, direction: str) -> float:
         risk = abs(entry - stop)
-        return entry + rr * risk if direction == "LONG" else entry - rr * risk
+        if direction == "LONG":
+            return entry + rr * risk
+        # a far short target (20R on a wide stop) would go below zero: floor
+        # it at 5 % of the entry (a 95 % fall) - never reached anyway
+        return max(entry - rr * risk, entry * 0.05)

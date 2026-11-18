@@ -235,6 +235,30 @@ def test_manual_close_command(env):
     assert svc.command("close_position", target=coid)["ok"] is False
 
 
+def test_closing_one_position_leaves_the_others_open(env):
+    db, bus, broker, portfolio, svc = env
+    for sym in ("BTC/USD", "ETH/USD", "SOL/USD"):
+        enter(broker, svc, sym)
+    assert len(portfolio.positions) == 3
+    target = next(c for c, p in portfolio.positions.items() if p.symbol == "ETH/USD")
+    assert svc.command("close_position", target=target, command_id="cloud-1")["ok"]
+    assert sorted(p.symbol for p in portfolio.positions.values()) == ["BTC/USD", "SOL/USD"]
+    assert svc.state == "running"
+    # the same cloud command delivered twice closes nothing more
+    assert svc.command("close_position", target=target, command_id="cloud-1")["duplicate"]
+    assert svc.command("close_position", target=None)["ok"] is False
+    assert len(portfolio.positions) == 2
+
+
+def test_emergency_stop_is_labelled_in_the_history(env):
+    db, bus, broker, portfolio, svc = env
+    for sym in ("BTC/USD", "ETH/USD"):
+        enter(broker, svc, sym)
+    svc.command("emergency_stop")
+    assert portfolio.positions == {} and svc.state == "stopped"
+    assert {t["exit_reason"] for t in portfolio.trade_history()} == {"emergency_stop"}
+
+
 def test_executor_adaptive_close_on_giveback(env):
     db, bus, broker, portfolio, svc = env
     enter(broker, svc)

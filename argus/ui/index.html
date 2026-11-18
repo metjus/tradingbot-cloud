@@ -76,6 +76,9 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
 .sdot.profit{color:var(--profit,#35D49B)}.sdot.warn{color:var(--warn,#F0B13F)}.sdot.loss{color:var(--loss,#F6567A)}
 .banner-danger{margin-top:8px;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.5;
   color:var(--loss);background:rgba(246,86,122,.08);border:1px solid rgba(246,86,122,.45);font-weight:600}
+#tbl-pos tr.pos-row{cursor:pointer}
+#tbl-pos tr.pos-row:hover td{background:rgba(91,140,255,.06)}
+#tbl-pos tr.pos-row.focused td{background:rgba(91,140,255,.12)}
 </style>
 </head>
 <body>
@@ -142,7 +145,7 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
             <div class="small" id="chart-err"></div>
           </div>
           <div class="card">
-            <div class="label" style="margin-bottom:6px">Otvorené pozície</div>
+            <div class="label" style="margin-bottom:6px">Otvorené pozície <span style="text-transform:none;letter-spacing:0;font-weight:400">· klikni na riadok pre graf</span></div>
             <div style="overflow-x:auto"><table id="tbl-pos"></table></div>
           </div>
         </div>
@@ -526,6 +529,7 @@ async function loadChart(fit = false){
     const lr = ts.getVisibleLogicalRange();
     if (lr && subChart) subChart.timeScale().setVisibleLogicalRange(lr);
     loadChart.viewKey = viewKey;
+    drawPositionLines();
 
     // numeric indicator strip (last values)
     const lastOf = (a) => { if (!a) return null; for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return a[i]; return null; };
@@ -790,6 +794,45 @@ async function cmd(action){
     refresh();
   } catch(e){ alert("Chyba: " + e.message); }
 }
+// --- click on an open position: its coin on the chart with entry/SL/TP ---
+let focusCoid = null, posLines = [];
+function focusedPosition(){
+  return ((lastPortfolio || {}).open_positions || []).find(o => o.client_order_id === focusCoid) || null;
+}
+function tfForStrategy(strategy){
+  const m = /_(\d+)h/.exec(strategy || "");
+  if (m) return +m[1] >= 4 ? "4h" : "1h";
+  return /4h/.test(strategy || "") ? "4h" : "1h";
+}
+function focusPosition(coid){
+  focusCoid = coid;
+  const o = focusedPosition();
+  if (!o) return;
+  const sel = $("sel-symbol");
+  if (![...sel.options].some(x => x.value === o.symbol)) sel.insertAdjacentHTML("beforeend", `<option>${esc(o.symbol)}</option>`);
+  sel.value = o.symbol;
+  $("sel-tf").value = tfForStrategy(o.strategy);
+  document.querySelectorAll("#tbl-pos tr.pos-row").forEach(r => r.classList.toggle("focused",
+    r.getAttribute("onclick").includes(coid)));
+  loadChart(true).then(drawPositionLines);
+  $("chart").scrollIntoView({behavior: "smooth", block: "center"});
+}
+function drawPositionLines(){
+  if (!candleSeries) return;
+  for (const l of posLines) candleSeries.removePriceLine(l);
+  posLines = [];
+  const o = focusedPosition();
+  if (!o || o.symbol !== $("sel-symbol").value) return;
+  const line = (price, color, title, style) => price != null && isFinite(price) &&
+    posLines.push(candleSeries.createPriceLine({price: Number(price), color, lineWidth: 2,
+      lineStyle: style || 0, axisLabelVisible: true, title}));
+  line(o.entry, "#5B8CFF", `vstup ${o.direction}`);
+  line(o.stop_loss, "#F6567A", "SL", 2);
+  const span = Math.abs(o.entry - o.stop_loss);
+  if (Math.abs(o.take_profit - o.entry) <= 6 * span) line(o.take_profit, "#35D49B", "TP", 2);
+  if (o.liq_price != null && Math.abs(o.liq_price - o.entry) <= 3 * span) line(o.liq_price, "#F0B13F", "likvid.", 1);
+}
+
 async function closePos(coid, sym){
   if (!confirm(`Zatvoriť pozíciu ${sym} teraz za trhovú cenu?`)) return;
   const d = await post(`/api/positions/${encodeURIComponent(coid)}/close`);
@@ -834,7 +877,8 @@ async function refresh(){
 
     const pos = portfolio.open_positions || [];
     $("tbl-pos").innerHTML = "<tr><th>Inštrument</th><th>Smer</th><th>Vložené</th><th>Páka</th><th>Množstvo</th><th>Vstup</th><th>Aktuálne</th><th>SL</th><th>TP</th><th>Likvid.</th><th>Stratégia</th><th style='text-align:right'>P/L</th><th></th></tr>" +
-      (pos.length ? pos.map(o => `<tr class="mono">
+      (pos.length ? pos.map(o => `<tr class="mono pos-row${o.client_order_id === focusCoid ? " focused" : ""}" title="Klikni pre graf tejto pozície"
+        onclick="focusPosition('${esc(o.client_order_id)}')">
         <td style="font-family:Inter;font-weight:600">${esc(o.symbol)}</td>
         <td><span class="tag ${o.direction==="LONG"?"long":"short"}">${o.direction}</span></td>
         <td title="${o.notional != null ? "hodnota pozície " + o.notional.toFixed(2) + " €" : ""}">${o.invested != null ? o.invested.toFixed(2) + " €" : "—"}</td>
@@ -844,8 +888,9 @@ async function refresh(){
         <td class="small">${o.liq_price != null ? Number(o.liq_price).toPrecision(5) : "—"}</td>
         <td style="font-family:Inter;color:var(--text2)">${esc(o.strategy)}</td>
         <td style="text-align:right" class="${cls(o.unrealized_pl)}">${fmtEur(o.unrealized_pl)}</td>
-        <td style="text-align:right"><button class="btn-danger btn-sm" onclick="closePos('${esc(o.client_order_id)}','${esc(o.symbol)}')">Zatvoriť</button></td></tr>`).join("")
+        <td style="text-align:right"><button class="btn-danger btn-sm" onclick="event.stopPropagation(); closePos('${esc(o.client_order_id)}','${esc(o.symbol)}')">Zatvoriť</button></td></tr>`).join("")
       : `<tr><td colspan="13" class="small">Žiadne otvorené pozície.</td></tr>`);
+    if (focusCoid && !pos.some(o => o.client_order_id === focusCoid)){ focusCoid = null; drawPositionLines(); }
 
     const comp = (n) => (health.components||[]).find(c => c.name === n);
     const md = comp("kraken_futures") || comp("kf_ticker") || comp("kraken") || comp("kraken_ticker");

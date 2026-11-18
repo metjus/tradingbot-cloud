@@ -59,7 +59,7 @@ def load_experience(db: Database, mode: str | None = None,
     with db.session() as s:
         q = select(Trade).where(Trade.status == "closed")
         if not include_manual:
-            q = q.where(Trade.exit_reason != "manual_close")
+            q = q.where(Trade.exit_reason.not_in(("manual_close", "emergency_stop")))
         if mode:
             q = q.where(Trade.mode == mode)
         rows = s.execute(q.order_by(Trade.id)).scalars().all()

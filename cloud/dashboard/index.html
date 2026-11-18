@@ -9,6 +9,7 @@
 <title>ARGUS</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js" defer></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <style>
 :root{
@@ -77,6 +78,18 @@ svg.spark{width:100%;height:70px;display:block}
 .btn-icon{display:flex;align-items:center;justify-content:center;gap:10px}
 @keyframes ptr-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 html,body{overscroll-behavior-y:contain}
+.pos.tap{cursor:pointer}
+.pos.tap:active{background:rgba(91,140,255,.05)}
+.sheet{position:fixed;inset:0;z-index:50;background:rgba(5,7,12,.72);display:flex;align-items:flex-end}
+.sheet-body{width:100%;max-height:92vh;overflow:auto;background:var(--panel);border-top:1px solid var(--line);
+  border-radius:18px 18px 0 0;padding:14px 14px calc(16px + env(safe-area-inset-bottom))}
+.tfbar{display:flex;gap:6px;margin:10px 0 8px}
+.tfbar button{width:auto;flex:1;padding:8px 0;font-size:12px;border-radius:9px;color:var(--text2);
+  background:var(--inset);border:1px solid var(--line)}
+.tfbar button.on{color:#fff;border-color:var(--blue);background:rgba(91,140,255,.18)}
+#pc-chart{height:300px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--text2);margin-top:8px}
+.legend i{display:inline-block;width:12px;height:2px;vertical-align:middle;margin-right:4px}
 </style>
 </head>
 <body>
@@ -207,6 +220,35 @@ html,body{overscroll-behavior-y:contain}
   <div style="position:absolute;left:0;right:0;bottom:0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px">
     <div id="scan-msg" class="small" style="text-align:center;color:#fff">Namier na QR kód v počítači</div>
     <button class="btn-ghost" onclick="stopScan()">Zrušiť</button>
+  </div>
+</div>
+
+<div id="pos-sheet" class="sheet hidden" onclick="if(event.target===this)closeChart()">
+  <div class="sheet-body">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span id="pc-dir" class="tag"></span><b id="pc-sym" style="font-size:16px"></b>
+      <span id="pc-price" class="mono small"></span>
+      <span class="spacer"></span>
+      <span id="pc-pl" class="mono" style="font-weight:600"></span>
+      <button class="btn-ghost btn-sm" onclick="closeChart()" aria-label="Zavrieť">Zavrieť</button>
+    </div>
+    <div id="pc-meta" class="small" style="margin-top:4px"></div>
+    <div class="tfbar">
+      <button data-tf="15m" onclick="setChartTf('15m')">15m</button>
+      <button data-tf="1h" onclick="setChartTf('1h')">1h</button>
+      <button data-tf="4h" onclick="setChartTf('4h')">4h</button>
+      <button data-tf="1d" onclick="setChartTf('1d')">1D</button>
+    </div>
+    <div id="pc-chart"></div>
+    <div class="legend">
+      <span><i style="background:#5B8CFF"></i>vstup</span>
+      <span><i style="background:#F6567A"></i>stop-loss</span>
+      <span><i style="background:#35D49B"></i>take-profit</span>
+      <span><i style="background:#F0B13F"></i>likvidácia</span>
+    </div>
+    <div id="pc-err" class="small"></div>
+    <div id="pc-status" class="small" style="margin-top:8px"></div>
+    <button id="pc-close" class="btn-danger" style="margin-top:10px">Zatvoriť túto pozíciu</button>
   </div>
 </div>
 
@@ -461,7 +503,7 @@ function render(data){
     const lo = Math.min(o.stop_loss, o.take_profit), hi = Math.max(o.stop_loss, o.take_profit);
     const pct = (v) => Math.max(0, Math.min(100, (v - lo) / ((hi - lo) || 1) * 100));
     const r = o.direction === "LONG" ? o : o;
-    return `<div class="pos">
+    return `<div class="pos tap" onclick="openChart('${esc(o.client_order_id)}')">
       <div style="display:flex;align-items:center;gap:8px">
         <span class="tag ${o.direction === "LONG" ? "long" : "short"}">${o.direction}</span>
         <b>${esc(o.symbol)}</b>
@@ -478,7 +520,11 @@ function render(data){
         <span class="loss">SL ${Number(o.stop_loss).toPrecision(6)}</span>
         <span>${Number(o.last_price ?? o.entry).toPrecision(6)}</span>
         <span class="profit">TP ${Number(o.take_profit).toPrecision(6)}</span></div>
-      <button class="btn-danger btn-sm" onclick="closePos('${esc(o.client_order_id)}','${esc(o.symbol)}')">Zatvoriť pozíciu</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="small" style="color:var(--muted)">Ťukni pre graf</span><span class="spacer"></span>
+        <span class="small" data-close-status="${esc(o.client_order_id)}"></span>
+        <button class="btn-danger btn-sm" onclick="event.stopPropagation(); closePos('${esc(o.client_order_id)}','${esc(o.symbol)}', this)">Zatvoriť pozíciu</button>
+      </div>
     </div>`;
   }).join("") : '<span class="small">Žiadne otvorené pozície.</span>';
 
@@ -521,6 +567,7 @@ function render(data){
 }
 
 async function tick(){
+  if (pcState && pcState.coid) setTimeout(renderChartHeader, 0);
   if (!token()) return false;
   try { render(await api("/api/state", {cache: "no-store"})); return true; }
   catch(e){
@@ -532,31 +579,128 @@ async function tick(){
 }
 
 // --- commands ---
-async function sendCmd(action, target){
-  $("cmd-status").textContent = "Odosielam…";
+async function sendCmd(action, target, outEl){
+  const out_ = outEl || $("cmd-status");
+  const say = (h) => { if (out_) out_.innerHTML = h; };
+  say("Odosielam…");
   try {
     const out = await api("/api/command", {method: "POST", body: JSON.stringify({action, target})});
-    $("cmd-status").textContent = "Čakám na potvrdenie počítačom…";
+    say("Čakám na potvrdenie počítačom…");
     for (let i = 0; i < 15; i++){
       await new Promise(r => setTimeout(r, 2000));
       const st = await api("/api/command/" + out.id);
       if (st.status === "done"){
         const res = st.result || {};
-        $("cmd-status").innerHTML = res.ok ? `<span class="profit">Vykonané</span> · stav bota: ${esc(res.state)}`
-                                          : `<span class="loss">Zamietnuté:</span> ${esc(res.error || "?")}`;
+        say(res.ok ? (action === "close_position" ? '<span class="profit">Zatvorené</span>'
+                      : `<span class="profit">Vykonané</span> · stav bota: ${esc(res.state)}`)
+                   : `<span class="loss">Zamietnuté:</span> ${esc(res.error || "?")}`);
         return tick();
       }
     }
-    $("cmd-status").textContent = "Počítač zatiaľ nepotvrdil (je zapnutý?). Príkaz čaká vo fronte max. 5 min.";
-  } catch(e){ $("cmd-status").textContent = "Chyba: " + e.message; }
+    say("Počítač zatiaľ nepotvrdil (je zapnutý?). Príkaz čaká vo fronte max. 5 min.");
+  } catch(e){ say("Chyba: " + esc(e.message)); }
 }
+// EMERGENCY STOP must be typed: a stray tap (iOS can deliver a tap to an
+// element that appears under the finger after a dialog) can never fire it
 function confirmStop(){
-  if (confirm("EMERGENCY STOP? Všetky otvorené pozície sa zatvoria za trhovú cenu.")) sendCmd("emergency_stop");
+  const n = openPositions().length;
+  const typed = prompt(`EMERGENCY STOP zatvorí VŠETKY otvorené pozície (${n}) za trhovú cenu a zastaví bota.\n\nPre potvrdenie napíš STOP:`);
+  if ((typed || "").trim().toUpperCase() === "STOP") sendCmd("emergency_stop");
+  else if (typed !== null) $("cmd-status").textContent = "Nepotvrdené - nič sa nezatvorilo.";
 }
-function closePos(coid, sym){
-  if (!confirm(`Zatvoriť ${sym} za trhovú cenu?`)) return;
-  show("controls");
-  sendCmd("close_position", coid);
+// closing ONE position stays on the same screen (no jump to the controls
+// tab with the emergency button) and reports right on the position
+function closePos(coid, sym, btn){
+  if (!confirm(`Zatvoriť iba túto pozíciu ${sym} za trhovú cenu? Ostatné pozície ostanú otvorené.`)) return;
+  if (btn) btn.disabled = true;
+  const el = document.querySelector(`[data-close-status="${CSS.escape(coid)}"]`) ||
+             (pcState.coid === coid ? $("pc-status") : null);
+  sendCmd("close_position", coid, el);
+}
+
+// --- position chart (live candles via the Worker from Kraken Futures) ---
+const pcState = {coid: null, tf: "1h", chart: null, series: null, lines: [], timer: null};
+function openPositions(){
+  return (((lastState || {}).state || {}).portfolio || {}).open_positions || [];
+}
+function pcPos(){
+  return openPositions().find(o => o.client_order_id === pcState.coid);
+}
+function defaultTf(strategy){
+  const m = /_(\d+)h/.exec(strategy || "");
+  if (m) return +m[1] >= 4 ? "4h" : "1h";
+  return /4h/.test(strategy || "") ? "4h" : "1h";
+}
+function openChart(coid){
+  pcState.coid = coid;
+  const o = pcPos();
+  if (!o) return;
+  pcState.tf = defaultTf(o.strategy);
+  $("pc-status").textContent = "";
+  $("pc-close").disabled = false;
+  $("pc-close").onclick = () => closePos(o.client_order_id, o.symbol, $("pc-close"));
+  $("pos-sheet").classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  renderChartHeader();
+  setChartTf(pcState.tf);
+  clearInterval(pcState.timer);
+  pcState.timer = setInterval(loadPosChart, 15000);
+}
+function closeChart(){
+  $("pos-sheet").classList.add("hidden");
+  document.body.style.overflow = "";
+  clearInterval(pcState.timer); pcState.timer = null; pcState.coid = null;
+}
+function renderChartHeader(){
+  const o = pcPos();
+  if (!o){ $("pc-meta").innerHTML = '<span class="warn">Pozícia už je zatvorená.</span>'; return; }
+  $("pc-sym").textContent = o.symbol;
+  $("pc-dir").textContent = o.direction;
+  $("pc-dir").className = "tag " + (o.direction === "LONG" ? "long" : "short");
+  $("pc-pl").textContent = fmtEur(o.unrealized_pl);
+  $("pc-pl").className = "mono " + cls(o.unrealized_pl);
+  $("pc-meta").innerHTML = `vstup <span class="mono">${Number(o.entry).toPrecision(6)}</span> · SL <span class="mono loss">${Number(o.stop_loss).toPrecision(6)}</span> · TP <span class="mono profit">${Number(o.take_profit).toPrecision(6)}</span> · ${esc(o.strategy || "")}`;
+}
+function setChartTf(tf){
+  pcState.tf = tf;
+  document.querySelectorAll(".tfbar button").forEach(b => b.classList.toggle("on", b.dataset.tf === tf));
+  loadPosChart(true);
+}
+async function loadPosChart(fit){
+  const o = pcPos();
+  renderChartHeader();
+  if (!o) return;
+  if (typeof LightweightCharts === "undefined"){ $("pc-err").textContent = "Knižnica grafu sa nenačítala (internet?)."; return; }
+  if (!pcState.chart){
+    pcState.chart = LightweightCharts.createChart($("pc-chart"), {
+      height: 300, layout: {background: {color: "transparent"}, textColor: "#98A2B8", fontSize: 11},
+      grid: {vertLines: {color: "#1B2130"}, horzLines: {color: "#1B2130"}},
+      rightPriceScale: {borderColor: "#242C40"}, timeScale: {borderColor: "#242C40", timeVisible: true},
+      crosshair: {mode: 0}});
+    pcState.series = pcState.chart.addCandlestickSeries({upColor: "#35D49B", downColor: "#F6567A",
+      wickUpColor: "#35D49B", wickDownColor: "#F6567A", borderVisible: false});
+    new ResizeObserver(() => pcState.chart.applyOptions({width: $("pc-chart").clientWidth}))
+      .observe($("pc-chart"));
+  }
+  try {
+    const d = await api(`/api/candles?symbol=${encodeURIComponent(o.symbol)}&tf=${pcState.tf}`);
+    pcState.series.setData((d.candles || []).map(c => ({time: c.t, open: c.o, high: c.h, low: c.l, close: c.c})));
+    const last = (d.candles || []).at(-1);
+    $("pc-price").textContent = last ? last.c : "";
+    $("pc-err").textContent = "";
+  } catch(e){ $("pc-err").textContent = "Graf sa nepodarilo načítať: " + e.message; }
+  for (const l of pcState.lines) pcState.series.removePriceLine(l);
+  pcState.lines = [];
+  const line = (price, color, title, style) => price != null && isFinite(price) &&
+    pcState.lines.push(pcState.series.createPriceLine({price: Number(price), color, lineWidth: 2,
+      lineStyle: style || 0, axisLabelVisible: true, title}));
+  line(o.entry, "#5B8CFF", "vstup");
+  line(o.stop_loss, "#F6567A", "SL", 2);
+  // a take-profit 20R away would squash the chart; show it only when near
+  const span = Math.abs(o.entry - o.stop_loss);
+  if (Math.abs(o.take_profit - o.entry) <= 6 * span) line(o.take_profit, "#35D49B", "TP", 2);
+  if (o.liq_price != null && Math.abs(o.liq_price - o.entry) <= 3 * span) line(o.liq_price, "#F0B13F", "likvid.", 1);
+  if (fit) pcState.chart.timeScale().fitContent();
 }
 
 // --- push ---

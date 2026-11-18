@@ -152,6 +152,33 @@ async function sendPushes(env, category) {
   }
 }
 
+// ------------------------------------------------------------ candles ---
+// Live chart for the phone: candles straight from Kraken Futures' public
+// charts API (no load on the desktop app), cached for 20 s per symbol/tf.
+const TF_SEC = { "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400 };
+async function candles(url) {
+  const sym = String(url.searchParams.get("symbol") || "").toUpperCase();
+  const tf = String(url.searchParams.get("tf") || "15m");
+  const m = /^([A-Z0-9]{1,15})\/USD$/.exec(sym);
+  if (!m || !TF_SEC[tf]) return json({ error: "bad symbol or timeframe" }, 400);
+  const base = m[1] === "BTC" ? "XBT" : m[1];
+  const n = 240;
+  const from = Math.floor(Date.now() / 1000) - n * TF_SEC[tf];
+  const src = `https://futures.kraken.com/api/charts/v1/trade/PF_${base}USD/${tf}?from=${from}`;
+  const cache = typeof caches !== "undefined" ? caches.default : null;
+  const key = new Request(`https://argus-cache/candles/${base}/${tf}/${Math.floor(Date.now() / 20000)}`);
+  if (cache) { const hit = await cache.match(key); if (hit) return hit; }
+  const r = await fetch(src, { headers: { "User-Agent": "argus-sync" } });
+  if (!r.ok) return json({ error: "kraken " + r.status }, 502);
+  const d = await r.json();
+  const rows = (d.candles || []).map((c) => ({
+    t: Math.floor(Number(c.time) / 1000), o: +c.open, h: +c.high, l: +c.low, c: +c.close, v: +c.volume }));
+  const out = new Response(JSON.stringify({ symbol: sym, tf, candles: rows.slice(-n) }),
+    { headers: { ...JSON_HEADERS, "cache-control": "max-age=20" } });
+  if (cache) await cache.put(key, out.clone());
+  return out;
+}
+
 // ------------------------------------------------------------- setup ---
 async function claim(request, env) {
   if (await cfgGet(env, "engine_token_hash"))
@@ -305,6 +332,10 @@ export default {
           state: row ? JSON.parse(row.json) : null,
           notifications: notif.results || [],
         });
+      }
+      if (p === "/api/candles" && request.method === "GET") {
+        if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
+        return candles(url);
       }
       if (p === "/api/command" && request.method === "POST") {
         if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
