@@ -363,7 +363,8 @@ class ExecutionService:
                 self._closing.discard(pos.client_order_id)
                 return {"ok": False, "error": "broker zatvorenie odmietol", "state": self.state}
             self._db.audit("trade", f"{pos.symbol}: ručné zatvorenie pozície")
-            return {"ok": True, "state": self.state, "closing": pos.client_order_id}
+            return {"ok": True, "state": self.state, "closing": pos.client_order_id,
+                    "symbol": pos.symbol, "closed": 1}
         elif action == "emergency_stop":
             self.risk.halt("emergency stop")
             closed, failed = 0, 0
@@ -379,6 +380,7 @@ class ExecutionService:
                 self._db.audit("trade",
                                f"EMERGENCY STOP: {failed} positions NOT confirmed closed",
                                "critical")
+            return {"ok": True, "state": self.state, "closed": closed, "failed": failed}
         else:
             return {"ok": False, "error": f"unknown action {action!r}",
                     "state": self.state}

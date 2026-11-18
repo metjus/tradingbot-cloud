@@ -14,6 +14,11 @@
   dotyk ho už nespustí. V histórii obchodov sa zapisuje ako
   „emergency_stop“ (doteraz „manual_close“, nedalo sa to rozlíšiť).
 - Vzdialený take-profit shortu už nemôže vyjsť záporný.
+- **Mobil -> Ovládanie -> „Posledné príkazy z telefónu“**: presne čo telefón
+  poslal (zatvoriť 1 pozíciu / EMERGENCY STOP / pauza / štart), kedy a koľko
+  pozícií sa zatvorilo - vrátane starších príkazov.
+- **Cloud odmietne EMERGENCY STOP bez napísaného STOP** - platí aj pre
+  starú verziu appky uloženú v telefóne.
 
 ## 1.2.x - aktívny režim = trendové portfólio (~13 obchodov denne, v pluse)
 

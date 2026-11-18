@@ -193,6 +193,11 @@ html,body{overscroll-behavior-y:contain}
       <div id="cmd-status" class="small"></div>
     </div>
     <div class="card">
+      <div style="display:flex;align-items:center"><div class="label">Posledné príkazy z telefónu</div>
+        <span class="spacer"></span><button class="btn-ghost btn-sm" onclick="loadCommands()">Obnoviť</button></div>
+      <div id="cmd-history" class="small" style="margin-top:8px">—</div>
+    </div>
+    <div class="card">
       <div class="label">Push notifikácie</div>
       <div id="push-cats"></div>
       <button class="btn-ghost" style="margin-top:12px" onclick="subscribePush()">Zapnúť / uložiť notifikácie</button>
@@ -279,6 +284,7 @@ const CATEGORIES = [
 ];
 
 function show(view){
+  if (view === "controls") setTimeout(loadCommands, 0);
   for (const v of ["setup", "paired", "overview", "trades", "news", "controls"])
     $("view-" + v).classList.toggle("hidden", v !== view);
   document.querySelectorAll("nav a").forEach(a => a.classList.toggle("active", a.dataset.view === view));
@@ -579,12 +585,12 @@ async function tick(){
 }
 
 // --- commands ---
-async function sendCmd(action, target, outEl){
+async function sendCmd(action, target, outEl, confirmText){
   const out_ = outEl || $("cmd-status");
   const say = (h) => { if (out_) out_.innerHTML = h; };
   say("Odosielam…");
   try {
-    const out = await api("/api/command", {method: "POST", body: JSON.stringify({action, target})});
+    const out = await api("/api/command", {method: "POST", body: JSON.stringify({action, target, confirm: confirmText})});
     say("Čakám na potvrdenie počítačom…");
     for (let i = 0; i < 15; i++){
       await new Promise(r => setTimeout(r, 2000));
@@ -594,6 +600,7 @@ async function sendCmd(action, target, outEl){
         say(res.ok ? (action === "close_position" ? '<span class="profit">Zatvorené</span>'
                       : `<span class="profit">Vykonané</span> · stav bota: ${esc(res.state)}`)
                    : `<span class="loss">Zamietnuté:</span> ${esc(res.error || "?")}`);
+        loadCommands();
         return tick();
       }
     }
@@ -605,7 +612,7 @@ async function sendCmd(action, target, outEl){
 function confirmStop(){
   const n = openPositions().length;
   const typed = prompt(`EMERGENCY STOP zatvorí VŠETKY otvorené pozície (${n}) za trhovú cenu a zastaví bota.\n\nPre potvrdenie napíš STOP:`);
-  if ((typed || "").trim().toUpperCase() === "STOP") sendCmd("emergency_stop");
+  if ((typed || "").trim().toUpperCase() === "STOP") sendCmd("emergency_stop", null, null, "STOP");
   else if (typed !== null) $("cmd-status").textContent = "Nepotvrdené - nič sa nezatvorilo.";
 }
 // closing ONE position stays on the same screen (no jump to the controls
@@ -616,6 +623,27 @@ function closePos(coid, sym, btn){
   const el = document.querySelector(`[data-close-status="${CSS.escape(coid)}"]`) ||
              (pcState.coid === coid ? $("pc-status") : null);
   sendCmd("close_position", coid, el);
+}
+
+// --- what this phone actually sent (kept by the Worker) ---
+async function loadCommands(){
+  const el = $("cmd-history");
+  try {
+    const d = await api("/api/commands");
+    const name = {close_position: "Zatvoriť 1 pozíciu", emergency_stop: "EMERGENCY STOP (všetky)",
+                  pause: "Pauza", start: "Spustiť"};
+    el.innerHTML = (d.commands || []).map(c => {
+      const r = c.result || {};
+      const t = new Date(c.ts * 1000).toLocaleString("sk-SK", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
+      const what = c.action === "close_position" ? `${name[c.action]} ${esc(r.symbol || "")}` : (name[c.action] || esc(c.action));
+      const res = c.status !== "done" ? '<span class="warn">čaká</span>'
+        : r.ok ? `<span class="profit">OK</span>${r.closed != null ? ` · zatvorené ${r.closed}` : ""}`
+        : `<span class="loss">${esc(r.error || "zamietnuté")}</span>`;
+      return `<div class="item"><span class="time">${t}</span>
+        <div style="flex:1"><b style="font-size:13px" class="${c.action === "emergency_stop" ? "loss" : ""}">${what}</b>
+        <div class="small" style="font-size:11px">${c.target ? "pozícia " + esc(c.target.slice(-10)) + " · " : ""}${res}</div></div></div>`;
+    }).join("") || "Zatiaľ žiadne príkazy.";
+  } catch(e){ el.textContent = "Nedá sa načítať: " + e.message; }
 }
 
 // --- position chart (live candles via the Worker from Kraken Futures) ---

@@ -2,7 +2,7 @@
    Pushes arrive WITHOUT payload; on wake we fetch the latest notification
    from the Worker (config read from IndexedDB) and display it. */
 
-const CACHE = "argus-v5";
+const CACHE = "argus-v6";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./icon-192.png"];
 
 self.addEventListener("install", (e) => {

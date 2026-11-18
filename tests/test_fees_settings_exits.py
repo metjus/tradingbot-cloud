@@ -241,7 +241,8 @@ def test_closing_one_position_leaves_the_others_open(env):
         enter(broker, svc, sym)
     assert len(portfolio.positions) == 3
     target = next(c for c, p in portfolio.positions.items() if p.symbol == "ETH/USD")
-    assert svc.command("close_position", target=target, command_id="cloud-1")["ok"]
+    out = svc.command("close_position", target=target, command_id="cloud-1")
+    assert out["ok"] and out["symbol"] == "ETH/USD" and out["closed"] == 1
     assert sorted(p.symbol for p in portfolio.positions.values()) == ["BTC/USD", "SOL/USD"]
     assert svc.state == "running"
     # the same cloud command delivered twice closes nothing more
@@ -254,7 +255,8 @@ def test_emergency_stop_is_labelled_in_the_history(env):
     db, bus, broker, portfolio, svc = env
     for sym in ("BTC/USD", "ETH/USD"):
         enter(broker, svc, sym)
-    svc.command("emergency_stop")
+    out = svc.command("emergency_stop")
+    assert out["closed"] == 2 and out["failed"] == 0
     assert portfolio.positions == {} and svc.state == "stopped"
     assert {t["exit_reason"] for t in portfolio.trade_history()} == {"emergency_stop"}
 

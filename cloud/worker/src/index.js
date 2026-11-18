@@ -333,6 +333,15 @@ export default {
           notifications: notif.results || [],
         });
       }
+      if (p === "/api/commands" && request.method === "GET") {
+        if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
+        const rows = await env.DB.prepare(
+          "SELECT id, action, target, status, result, ts, acked_ts FROM commands " +
+          "ORDER BY ts DESC LIMIT 25").all();
+        return json({ commands: (rows.results || []).map((r) => ({
+          ...r, result: (() => { try { return r.result ? JSON.parse(r.result) : null; }
+                                  catch (e) { return null; } })() })) });
+      }
       if (p === "/api/candles" && request.method === "GET") {
         if (who !== "dashboard") return json({ error: "unauthorized" }, 401);
         return candles(url);
@@ -345,6 +354,10 @@ export default {
           return json({ error: "unknown action" }, 400);
         const target = action === "close_position" ? String(b.target || "").slice(0, 80) : null;
         if (action === "close_position" && !target) return json({ error: "missing target" }, 400);
+        // closing EVERYTHING must be confirmed by typing STOP on the phone; a
+        // tap alone (or an old cached app version) can never trigger it
+        if (action === "emergency_stop" && String(b.confirm || "").trim().toUpperCase() !== "STOP")
+          return json({ error: "EMERGENCY STOP treba potvrdiť napísaním STOP" }, 400);
         const id = crypto.randomUUID();
         await env.DB.prepare(
           "INSERT INTO commands (id, action, target, ts, status) VALUES (?,?,?,?, 'pending')")
