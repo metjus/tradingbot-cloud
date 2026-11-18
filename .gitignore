@@ -5,3 +5,7 @@ data/
 *.egg-info/
 .pytest_cache/
 .env
+
+# CFE parity test sample (real Kraken candles)
+!tests/data/
+!tests/data/cfe_kraken_sample.json.gz
