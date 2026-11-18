@@ -109,7 +109,7 @@ jobs:
           $version = "1.2.$($env:GITHUB_RUN_NUMBER)"
           gh release delete cfe-latest --yes 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "no previous release" }
           git push origin :refs/tags/cfe-latest 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "no previous tag" }
-          gh release create cfe-latest dist/ARGUS-CFE-setup.exe --prerelease --latest=false `
+          gh release create cfe-latest dist/ARGUS-CFE-setup.exe --prerelease --latest=false --target $env:GITHUB_SHA `
             --title "ARGUS CFE $version (samostatná verzia)" `
             --notes "Samostatná verzia ARGUS so stratégiou CFE (iba paper). Inštaluje sa vedľa hlavného ARGUS (vlastný priečinok, dáta %APPDATA%\ARGUS-CFE, port 7422). CFE nepreukázala zisk po poplatkoch (backtest -0,022 R/obchod). Zmeny: docs/CFE.md. Build z commitu $env:GITHUB_SHA."
           exit 0
