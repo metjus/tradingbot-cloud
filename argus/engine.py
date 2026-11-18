@@ -464,6 +464,21 @@ class Engine:
         log.info("ML model reloaded: %s", f"v{scorer.meta.version}" if scorer else "none")
 
     # --- settings -----------------------------------------------------------
+    def set_paper_capital(self, amount: float) -> dict:
+        """Capital of the paper account (deposit / withdrawal). When the bot
+        budget covered the whole capital before, it follows the new capital,
+        so 'the bot uses everything' stays true after the change."""
+        before = self.portfolio.equity
+        delta = self.portfolio.set_capital(amount)
+        changes = {}
+        if self.runtime["budget_eur"] >= before - 0.005:
+            changes = self.runtime.update({"budget_eur": float(amount)})
+        self.db.audit("system", f"Kapitál paper účtu nastavený na {float(amount):.2f} € "
+                      f"({delta:+.2f} €)", data={"before": round(before, 2),
+                                                 "after": float(amount), **changes})
+        return {"capital": round(self.portfolio.equity, 2), "delta": round(delta, 2),
+                "budget_eur": self.runtime["budget_eur"]}
+
     def apply_settings(self) -> None:
         rs = self.runtime
         cost = round_trip_cost_pct(rs["fee_venue"], 

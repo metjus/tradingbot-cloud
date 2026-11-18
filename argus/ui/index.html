@@ -1095,7 +1095,8 @@ async function refreshSlow(){
 // --- settings form ---
 const FIELDS = {
   "form-money": [
-    ["budget_eur", "Rozpočet bota (€)", "Koľko peňazí smie bot celkovo použiť. Riziko na obchod sa počíta z tejto sumy."],
+    ["paper_capital_eur", "Kapitál účtu (€)", "Koľko peňazí máš na (paper) účte - suma „Kapitál“ na prehľade. Zmena je ako vklad alebo výber: história obchodov a celkový zisk ostávajú. Ak rozpočet bota pokrýval celý kapitál, zmení sa spolu s ním."],
+    ["budget_eur", "Rozpočet bota (€)", "Koľko z kapitálu smie bot použiť. Riziko na obchod sa počíta z tejto sumy; ak je vyšší ako kapitál, platí kapitál."],
     ["max_position_eur", "Max. na jednu pozíciu (€)", "Najväčšia suma vložená do jedného obchodu."],
     ["risk_per_trade_pct", "Riziko na obchod (%)", "Koľko % rozpočtu stratíš, ak obchod skončí na stop-losse. Odporúčané 2 % (~štvrtina Kellyho optima pre top 5 mincí a 1 pozíciu naraz). Max. 2 %."],
     ["risk_guard", "Poistka rizika podľa výsledkov", "Ak naživo stratégia po 20 obchodoch prerába (PF pod 1,0) alebo má prepad 20 %, riziko sa samo zníži na 1 %, kým sa výsledky nezlepšia."],

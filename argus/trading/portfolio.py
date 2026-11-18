@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from ..db.database import Database
-from ..db.schema import Trade
+from ..db.schema import AppSetting, Trade
 from ..risk import AccountState
 
 log = logging.getLogger(__name__)
@@ -101,7 +101,14 @@ class Portfolio:
     _day: int = -1
     positions: dict[str, OpenPosition] = field(default_factory=dict)
 
+    #: capital limits accepted from the UI (EUR)
+    MIN_CAPITAL = 10.0
+    MAX_CAPITAL = 10_000_000.0
+
     def __post_init__(self) -> None:
+        stored = self._stored_start_equity()
+        if stored is not None:
+            self.start_equity = stored
         self.equity = self._load_equity()
         self._roll_day()
         self._recover_open_positions()
@@ -113,6 +120,42 @@ class Portfolio:
                 select(Trade.pl).where(Trade.status == "closed", Trade.mode == self.mode)
             ).scalars().all()
         return self.start_equity + sum(p or 0.0 for p in realized)
+
+    def _capital_key(self) -> str:
+        return f"start_equity:{self.mode}"
+
+    def _stored_start_equity(self) -> float | None:
+        with self.db.session() as s:
+            row = s.get(AppSetting, self._capital_key())
+            value = (row.value or {}).get("start_equity") if row is not None else None
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def set_capital(self, amount: float) -> float:
+        """Set the account's capital to ``amount`` now - a deposit or a
+        withdrawal on the paper account. Trade history, total P/L and
+        today's P/L stay as they are; the starting balance moves by the
+        difference. Returns the difference."""
+        amount = float(amount)
+        if not (self.MIN_CAPITAL <= amount <= self.MAX_CAPITAL):
+            raise ValueError(f"kapitál musí byť medzi {self.MIN_CAPITAL:.0f} "
+                             f"a {self.MAX_CAPITAL:.0f} €")
+        delta = amount - self.equity
+        self._roll_day()
+        self.start_equity += delta
+        self.equity = amount
+        self.day_start_equity += delta
+        with self.db.session() as s:
+            row = s.get(AppSetting, self._capital_key())
+            value = {"start_equity": self.start_equity}
+            if row is None:
+                s.add(AppSetting(key=self._capital_key(), value=value))
+            else:
+                row.value = value
+            s.commit()
+        return delta
 
     def _recover_open_positions(self) -> None:
         with self.db.session() as s:

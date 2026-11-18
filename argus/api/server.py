@@ -234,6 +234,9 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
             return {"available": False}
         from ..fees import venues_table
         d = engine.runtime.describe()
+        d["values"]["paper_capital_eur"] = round(engine.portfolio.equity, 2)
+        d["limits"]["paper_capital_eur"] = {"min": engine.portfolio.MIN_CAPITAL,
+                                            "max": engine.portfolio.MAX_CAPITAL}
         d["available"] = True
         d["venues"] = venues_table()
         d["active_symbols"] = engine.crypto_symbols
@@ -243,8 +246,25 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
     def api_update_settings(payload: dict) -> JSONResponse:
         if engine is None:
             return JSONResponse({"ok": False, "error": "engine unavailable"}, 400)
+        payload = dict(payload)
+        capital = payload.pop("paper_capital_eur", None)
         try:
-            changed = engine.runtime.update(payload)
+            if capital is not None:
+                capital = float(capital)
+                if not (engine.portfolio.MIN_CAPITAL <= capital <= engine.portfolio.MAX_CAPITAL):
+                    raise ValueError(f"kapitál musí byť medzi {engine.portfolio.MIN_CAPITAL:.0f} "
+                                     f"a {engine.portfolio.MAX_CAPITAL:.0f} €")
+            unknown = [k for k in payload if k not in engine.runtime.as_dict()]
+            if unknown:
+                raise ValueError(f"neznáme nastavenia: {', '.join(unknown)}")
+            changed = {}
+            if capital is not None and abs(capital - engine.portfolio.equity) >= 0.005:
+                budget_before = engine.runtime["budget_eur"]
+                res = engine.set_paper_capital(capital)
+                changed["paper_capital_eur"] = res["capital"]
+                if res["budget_eur"] != budget_before and "budget_eur" not in payload:
+                    changed["budget_eur"] = res["budget_eur"]
+            changed.update(engine.runtime.update(payload))
         except (ValueError, TypeError) as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, 400)
         from ..runtime_settings import RESTART_REQUIRED
@@ -325,7 +345,8 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
     @app.get("/api/readiness")
     def api_readiness() -> dict:
         from ..readiness import evaluate_readiness
-        start_eq = settings.paper_equity if settings is not None else 10_000.0
+        start_eq = (portfolio.start_equity if portfolio is not None
+                    else settings.paper_equity if settings is not None else 10_000.0)
         return evaluate_readiness(db, start_eq).as_dict()
 
     @app.get("/api/market")
@@ -343,7 +364,8 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         s = settings
         return {"available": True, "config": {
             "trading_mode": s.trading_mode, "paper_broker": s.paper_broker,
-            "paper_equity": s.paper_equity,
+            "paper_equity": (round(portfolio.start_equity, 2) if portfolio is not None
+                             else s.paper_equity),
             "crypto_provider": s.crypto_provider,
             "crypto_symbols": engine.crypto_symbols if engine is not None else s.crypto_symbols,
             "stock_symbols": s.stock_symbols,

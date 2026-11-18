@@ -488,3 +488,48 @@ def test_focus_profile_migration_only_touches_old_defaults(tmp_path):
     assert (rs2["max_symbols"], rs2["max_open_positions"], rs2["risk_per_trade_pct"]) == (8, 2, 0.7)
     rs2.update({"risk_per_trade_pct": 1.5})      # no second migration later
     assert RuntimeSettings(db2)["risk_per_trade_pct"] == 1.5
+
+
+def test_capital_is_set_from_the_ui_and_survives_restart(tmp_path):
+    """Kapitál (paper equity) is editable: a deposit/withdrawal that keeps the
+    trade history and total P/L; the budget follows when it covered it all."""
+    from fastapi.testclient import TestClient
+
+    from argus.api.server import create_app
+    from argus.config import Settings
+    from argus.engine import Engine
+    cfg = dict(data_dir=tmp_path / "d", crypto_symbols=[], news_enabled=False,
+               ml_train_enabled=False)
+    e1 = Engine(Settings(**cfg))
+    e1.broker.on_tick("BTC/USD", 100.0)
+    e1.executor._maybe_enter({"verdict": "enter", "regime": "x", "best": {"score": 80,
+        "signal": {"symbol": "BTC/USD", "direction": "LONG", "entry": 100.0,
+                   "stop_loss": 99.0, "take_profit": 103.0, "strategy": "m", "reasons": []}},
+        "risk": {"approved": True, "quantity": 1.0, "risk_pct": 0.5}})
+    e1.broker.on_tick("BTC/USD", 98.9)                    # a small loss: under 10 000
+    lost = e1.portfolio.equity - 10_000.0
+    assert lost < 0
+    app = create_app(e1.db, e1.bus, e1.health, e1.info(), executor=e1.executor,
+                     portfolio=e1.portfolio, decision_engine=e1.decision_engine,
+                     settings=e1.settings, engine=e1)
+    c = TestClient(app)
+    assert c.get("/api/settings").json()["values"]["paper_capital_eur"] == round(
+        e1.portfolio.equity, 2)
+    r = c.post("/api/settings", json={"paper_capital_eur": 25_000, "leverage": 5})
+    assert r.status_code == 200 and r.json()["ok"], r.text
+    assert r.json()["changed"]["paper_capital_eur"] == 25_000
+    p = c.get("/api/portfolio").json()
+    assert p["equity"] == 25_000 and p["total_pl"] == round(lost, 2)
+    assert p["day_pl"] == round(lost, 2)                  # the deposit is not profit
+    assert e1.runtime["budget_eur"] == 25_000            # budget covered everything
+    assert e1.risk.limits.budget_eur == 25_000 and e1.risk.limits.leverage == 5
+    assert e1.portfolio.account_state().equity == 25_000  # risk is sized from it
+    assert c.post("/api/settings", json={"paper_capital_eur": 1}).status_code == 400
+    assert e1.portfolio.equity == 25_000
+    # a budget smaller than the capital is the user's choice and stays
+    c.post("/api/settings", json={"budget_eur": 5_000})
+    c.post("/api/settings", json={"paper_capital_eur": 30_000})
+    assert e1.runtime["budget_eur"] == 5_000
+    e2 = Engine(Settings(**cfg))                          # restart
+    assert e2.portfolio.equity == 30_000
+    assert round(e2.portfolio.snapshot()["total_pl"], 2) == round(lost, 2)
