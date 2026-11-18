@@ -151,6 +151,10 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
         </div>
         <div class="col-side">
           <div class="card">
+            <div class="label" style="margin-bottom:6px">CFE · samostatný paper účet</div>
+            <div id="dash-cfe" class="small">—</div>
+          </div>
+          <div class="card">
             <div class="label" style="margin-bottom:6px">Aktívny režim</div>
             <div id="dash-active" class="small">—</div>
           </div>
@@ -625,6 +629,36 @@ async function refreshExplore(){
     <div class="list-item"><span>Zaplatené poplatky</span><span class="spacer"></span><span class="mono">${(x.fees ?? 0).toFixed(2)} €</span></div>
     <div class="list-item"><span>Profit factor</span><span class="spacer"></span><span class="mono ${x.profit_factor != null ? (x.profit_factor >= 1 ? "profit" : "loss") : ""}">${pf}</span></div>
     <div class="small" style="color:var(--muted);margin-top:6px">Automatické vypnutie: PF pod 1,0 po ${x.min_trades} obchodoch, alebo čistá strata nad ${x.max_loss_eur} €.</div>`;
+}
+
+// --- CFE: Confluence Futures Engine on its own paper account ---
+async function refreshCfe(){
+  let x;
+  try { x = await api("/api/cfe"); } catch(e){ return; }
+  const el = $("dash-cfe");
+  if (!el) return;
+  const pf = x.profit_factor != null ? x.profit_factor.toFixed(2) : "—";
+  const state = x.enabled
+    ? `${sdot("profit")}<b>zapnutý</b> · ${x.coins ?? "—"} mincí · riziko ${x.risk_pct}% na setup · min. skóre ${x.min_score ?? 70}`
+    : `${sdot("warn")}<b>vypnutý</b>${x.disabled_reason ? ` - ${esc(x.disabled_reason)}` : ""}`;
+  const w = Object.entries(x.watch || {}).map(([sym, v]) => ({sym, ...v}))
+    .sort((a, b) => Math.max(b.score_long, b.score_short) - Math.max(a.score_long, a.score_short)).slice(0, 5);
+  const watch = w.length ? w.map(v => {
+    const sc = Math.max(v.score_long, v.score_short), dir = v.score_long >= v.score_short ? "LONG" : "SHORT";
+    return `<div class="list-item"><span>${esc(v.sym.split("/")[0])}</span><span class="spacer"></span>
+      <span class="mono ${v.signal ? "profit" : ""}">${dir} ${sc.toFixed(0)}${v.signal ? " · SIGNÁL" : (v.setup ? " · setup" : "")}</span>
+      <span class="small" style="margin-left:8px">HTF ${v.htf_align >= 0 ? "+" : ""}${v.htf_align}</span></div>`;
+  }).join("") : '<div class="small" style="color:var(--muted)">Prvé skóre po uzavretí 15-min sviečky.</div>';
+  el.innerHTML = `<div style="margin-bottom:6px">${state}</div>
+    <div style="color:var(--text2);margin-bottom:8px">Prelomenie štruktúry s impulzom v smere 1h + 4h trendu, skóre 0-100.
+      Vstup limitom na prelomenej úrovni (12 sviečok), TP 1R / 2R / 3R po tretinách, po TP1 stop na vstup.
+      <b>Validácia ani backtest nepreukázali zisk po poplatkoch</b> (~ −0,02 R na obchod) - iba paper.</div>
+    <div class="label" style="margin:6px 0 2px">Najvyššie skóre teraz (15m)</div>${watch}
+    <div class="list-item" style="margin-top:6px"><span>Obchody (časti)</span><span class="spacer"></span><span class="mono">${x.trades ?? 0} (dnes ${x.today ?? 0}, otvorené ${x.open ?? 0})</span></div>
+    <div class="list-item"><span>Výsledok po poplatkoch</span><span class="spacer"></span><span class="mono ${cls(x.net_pl)}">${fmtEur(x.net_pl ?? 0)}</span></div>
+    <div class="list-item"><span>Zaplatené poplatky</span><span class="spacer"></span><span class="mono">${(x.fees ?? 0).toFixed(2)} €</span></div>
+    <div class="list-item"><span>Profit factor</span><span class="spacer"></span><span class="mono ${x.profit_factor != null ? (x.profit_factor >= 1 ? "profit" : "loss") : ""}">${pf}</span></div>
+    <div class="small" style="color:var(--muted);margin-top:6px">Automatické vypnutie: PF pod 1,0 po ${x.min_trades ?? 150} častiach, alebo čistá strata nad ${x.max_loss_eur ?? "—"} €.</div>`;
 }
 
 // --- active mode: trend portfolio (12 flip systems on ~20 coins) ---
@@ -1124,6 +1158,12 @@ const FIELDS = {
     ["regime_exit", "Reagovať na zvrat trhového režimu", ""],
     ["explore_enabled", "Skúšobný režim (obchodovať aj vo „vákuu“)", "Shorty na odraze v 4h poklese s desatinovým rizikom. Vypne sa sám, ak po poplatkoch prerába (PF pod 1 po 20 obchodoch alebo strata nad 1 % rozpočtu)."],
     ["explore_risk_scale", "Skúšobný režim: podiel bežného rizika", "0,1 = desatina rizika hlavnej stratégie."],
+    ["cfe_enabled", "CFE (Confluence Futures Engine) - samostatný paper účet", "Prelomenie štruktúry v smere 1h + 4h trendu na 15m grafe. Výskum ani backtest nepreukázali zisk po poplatkoch (~ -0,02 R/obchod) - iba paper. Vypne sa sám pri PF pod 1 po 150 častiach alebo strate nad 10 % rozpočtu."],
+    ["cfe_risk_pct", "CFE: riziko na setup (% kapitálu)", "Rozdelí sa na 3 časti (TP1 / TP2 / TP3)."],
+    ["cfe_min_score", "CFE: minimálne skóre (0-100)", "Predvolené 70."],
+    ["cfe_htf_min", "CFE: zhoda vyšších timeframov (0-1)", "1,0 = 1h aj 4h trend musia súhlasiť (predvolené)."],
+    ["cfe_session", "CFE: obchodovať iba 13-24 UTC", "Session filter z validácie."],
+    ["cfe_entry_mode", "CFE: vstup", "limit = na prelomenej úrovni (validovaný), market = na close signálnej sviečky."],
     ["active_enabled", "Aktívny režim - trendové portfólio (~13 obchodov denne)", "12 trendových systémov na 2h-8h grafoch, na širšom výbere mincí. Vlastné štatistiky. Vypne sa sám pri čistej strate nad 25 % rozpočtu."],
     ["active_coins", "Aktívny režim: počet mincí", "Viac mincí = viac obchodov. Odporúčané 20. Zmena platí po reštarte aplikácie."],
     ["active_risk_pct", "Aktívny režim: riziko na obchod (% kapitálu)", "Základ pred úpravou podľa volatility trhu (×0,25 až ×1,5). Naraz býva otvorených ~100 pozícií, preto je riziko na jednu malé. 0,02 % ≈ medián +20 %/rok, typický prepad 11-15 %; 0,03 % ≈ +30 %/rok, prepad 16-21 %."],
@@ -1552,6 +1592,8 @@ refreshExplore();
 setInterval(refreshExplore, 30000);
 refreshActive();
 setInterval(refreshActive, 30000);
+refreshCfe();
+setInterval(refreshCfe, 30000);
 refreshAI();
 setInterval(refreshAI, 30000);
 connectWs();

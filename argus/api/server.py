@@ -401,6 +401,13 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
             return {"enabled": False, "trades": 0}
         return engine.explore_status("active")
 
+    @app.get("/api/cfe")
+    def api_cfe() -> dict:
+        """CFE paper account: result net of fees, last score per coin."""
+        if engine is None:
+            return {"enabled": False, "trades": 0}
+        return engine.explore_status("cfe")
+
     @app.get("/api/riskguard")
     def api_riskguard() -> dict:
         """Evidence guard + validated-strategy live stats + tradable coins."""

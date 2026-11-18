@@ -22,7 +22,8 @@ def default_data_dir() -> Path:
         return Path(os.environ["ARGUS_HOME"])
     if platform.system() == "Windows":
         base = os.environ.get("APPDATA", str(Path.home()))
-        return Path(base) / "ARGUS"
+        # separate app version: its own data (trades, settings, pairing)
+        return Path(base) / "ARGUS-CFE"
     return Path(os.environ.get("ARGUS_HOME", Path.cwd() / "data"))
 
 
@@ -34,7 +35,7 @@ class Settings(BaseSettings):
 
     # --- local API (UI <-> engine), loopback only ---
     api_host: str = "127.0.0.1"
-    api_port: int = 7421
+    api_port: int = 7422          # ARGUS CFE runs next to ARGUS (7421)
 
     # --- market data ---
     crypto_provider: str = "kraken"  # kraken | binance

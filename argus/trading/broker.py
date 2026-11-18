@@ -41,6 +41,8 @@ class BracketOrder:
     entry: str = "market"     # market | limit (maker at limit_price)
     limit_price: float = 0.0
     expire_s: float = 0.0     # limit only: cancel if unfilled this long
+    cancel_price: float = 0.0  # limit only: cancel once price reaches it unfilled
+    fill_through: bool = False  # limit only: fill only when traded THROUGH (not touch)
 
 
 @dataclass(slots=True)
@@ -182,7 +184,20 @@ class PaperBroker(BrokerAdapter):
                 if self.on_cancel:
                     self.on_cancel(coid, "limit vstup nevyplnený, zrušený")
                 continue
-            hit = lo <= order.limit_price if order.direction == "LONG"                 else hi >= order.limit_price
+            if order.cancel_price > 0 and (hi >= order.cancel_price if order.direction == "LONG"
+                                           else lo <= order.cancel_price):
+                # the move left without us (CFE: TP1 reached before the retest)
+                self._pending.pop(coid, None)
+                self._pending_expiry.pop(coid, None)
+                if self.on_cancel:
+                    self.on_cancel(coid, "cena dosiahla TP1 skôr než limit, zrušený")
+                continue
+            if order.fill_through:
+                hit = lo < order.limit_price if order.direction == "LONG" \
+                    else hi > order.limit_price
+            else:
+                hit = lo <= order.limit_price if order.direction == "LONG" \
+                    else hi >= order.limit_price
             if hit:
                 self._pending.pop(coid, None)
                 self._pending_expiry.pop(coid, None)

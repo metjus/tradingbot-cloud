@@ -1,8 +1,8 @@
-name: Build Windows installer
+name: Build Windows installer (ARGUS CFE)
 
 on:
   push:
-    branches: [main]
+    branches: [claude/argus-cfe-strategy]
   workflow_dispatch:
 
 concurrency:
@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write   # publish the installer to the "latest" release
+  contents: write   # publish the installer to the "cfe-latest" release (never "latest")
 
 jobs:
   build:
@@ -33,7 +33,7 @@ jobs:
 
       - name: Build ARGUS.exe (PyInstaller)
         run: >
-          pyinstaller --noconfirm --clean --name ARGUS --windowed
+          pyinstaller --noconfirm --clean --name ARGUS-CFE --windowed
           --icon desktop/argus.ico
           --paths .
           --add-data "argus/ui;argus/ui"
@@ -44,26 +44,26 @@ jobs:
       - name: Smoke-test the frozen engine
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "dist/ARGUS/ARGUS.exe" -ArgumentList "--engine" -PassThru
+          $p = Start-Process -FilePath "dist/ARGUS-CFE/ARGUS-CFE.exe" -ArgumentList "--engine" -PassThru
           $ok = $false
           foreach ($i in 1..60) {
             Start-Sleep -Seconds 2
             try {
-              $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:7421/api/health" -TimeoutSec 3
+              $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:7422/api/health" -TimeoutSec 3
               if ($r.StatusCode -eq 200) { $ok = $true; break }
             } catch {}
             if ($p.HasExited) { break }
           }
           if (-not $ok) {
             Write-Host "engine did not come up (exited: $($p.HasExited))"
-            Get-ChildItem -Recurse "$env:APPDATA/ARGUS" -ErrorAction SilentlyContinue | Select-Object FullName, Length
+            Get-ChildItem -Recurse "$env:APPDATA/ARGUS-CFE" -ErrorAction SilentlyContinue | Select-Object FullName, Length
             Write-Host "--- argus.log"
-            Get-Content "$env:APPDATA/ARGUS/logs/argus.log" -ErrorAction SilentlyContinue
+            Get-Content "$env:APPDATA/ARGUS-CFE/logs/argus.log" -ErrorAction SilentlyContinue
             Write-Host "--- engine-stdio.log"
-            Get-Content "$env:APPDATA/ARGUS/logs/engine-stdio.log" -ErrorAction SilentlyContinue
+            Get-Content "$env:APPDATA/ARGUS-CFE/logs/engine-stdio.log" -ErrorAction SilentlyContinue
             exit 1
           }
-          $html = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:7421/app/").Content
+          $html = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:7422/app/").Content
           if ($html -notmatch "ARGUS") { Write-Host "UI page missing"; exit 1 }
           Stop-Process -Id $p.Id -Force
           Write-Host "frozen engine OK"
@@ -75,16 +75,16 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           $version = "1.2.$($env:GITHUB_RUN_NUMBER)"
           & $iscc "/DAppVersion=$version" desktop/argus.iss
-          Get-Item dist/ARGUS-setup.exe
+          Get-Item dist/ARGUS-CFE-setup.exe
 
       - name: Installer detects an existing installation
         shell: pwsh
         run: |
           # 1st install, then run the same installer again: it must find the
           # first one (this is what shows the "reinstall / update" page)
-          $a = Start-Process dist/ARGUS-setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER','/NORESTART','/LOG=install1.log' -Wait -PassThru
+          $a = Start-Process dist/ARGUS-CFE-setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER','/NORESTART','/LOG=install1.log' -Wait -PassThru
           if ($a.ExitCode -ne 0) { Get-Content install1.log -Tail 40; exit 1 }
-          $b = Start-Process dist/ARGUS-setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER','/NORESTART','/LOG=install2.log' -Wait -PassThru
+          $b = Start-Process dist/ARGUS-CFE-setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER','/NORESTART','/LOG=install2.log' -Wait -PassThru
           if ($b.ExitCode -ne 0) { Get-Content install2.log -Tail 40; exit 1 }
           Select-String -Path install1.log -Pattern 'ARGUS:'
           if (-not (Select-String -Path install2.log -Pattern 'predchadzajuca instalacia najdena' -Quiet)) {
@@ -97,19 +97,19 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ARGUS-setup
-          path: dist/ARGUS-setup.exe
+          name: ARGUS-CFE-setup
+          path: dist/ARGUS-CFE-setup.exe
 
-      - name: Publish to "latest" release
-        if: github.ref == 'refs/heads/main'
+      - name: Publish to "cfe-latest" release (separate version)
+        if: github.ref == 'refs/heads/claude/argus-cfe-strategy'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = "1.2.$($env:GITHUB_RUN_NUMBER)"
-          gh release delete latest --yes 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "no previous release" }
-          git push origin :refs/tags/latest 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "no previous tag" }
-          gh release create latest dist/ARGUS-setup.exe `
-            --title "ARGUS $version" `
-            --notes "Inštalátor pre Windows 11. Stiahni ARGUS-setup.exe, spusti a nainštaluj (aktualizácia zachová dáta a nastavenia). Zmeny: docs/CHANGELOG.md. Build z commitu $env:GITHUB_SHA."
+          gh release delete cfe-latest --yes 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "no previous release" }
+          git push origin :refs/tags/cfe-latest 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "no previous tag" }
+          gh release create cfe-latest dist/ARGUS-CFE-setup.exe --prerelease --latest=false `
+            --title "ARGUS CFE $version (samostatná verzia)" `
+            --notes "Samostatná verzia ARGUS so stratégiou CFE (iba paper). Inštaluje sa vedľa hlavného ARGUS (vlastný priečinok, dáta %APPDATA%\ARGUS-CFE, port 7422). CFE nepreukázala zisk po poplatkoch (backtest -0,022 R/obchod). Zmeny: docs/CFE.md. Build z commitu $env:GITHUB_SHA."
           exit 0

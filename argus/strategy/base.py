@@ -43,6 +43,13 @@ class Signal:
     sleeve: str = ""
     #: limit entry validity in seconds (0 = one signal bar)
     expire_s: float = 0.0
+    #: scaled exit: take-profit per equal part (e.g. CFE TP1/TP2/TP3 in
+    #: thirds, break-even after TP1, stop to TP1 after TP2); () = one TP
+    tps: tuple = ()
+    #: "limit" forces a resting limit at `entry`; "" = executor default
+    entry_type: str = ""
+    #: limit only: cancel the unfilled order once price reaches this level
+    cancel_price: float = 0.0
 
     @property
     def risk_per_unit(self) -> float:
@@ -71,6 +78,8 @@ class Signal:
             "timeframe": self.timeframe.value, "reasons": self.reasons,
             "exploration": self.exploration, "risk_scale": self.risk_scale,
             "sleeve": self.sleeve, "expire_s": self.expire_s,
+            "tps": list(self.tps), "entry_type": self.entry_type,
+            "cancel_price": self.cancel_price,
         }
 
 
@@ -85,6 +94,9 @@ class Strategy(ABC):
     any_coin: bool = False
     #: exits only by its own reversal signal + safety stop (no adaptive exits)
     flip_exit: bool = False
+    #: which on/off switch governs it: "explore", "active", "cfe"; None =
+    #: derived (any_coin -> active, exploration -> explore, else always on)
+    gate: str | None = None
     #: regimes this strategy is designed for; the decision engine
     #: penalises (not blocks) signals outside them
     suited_regimes: tuple[Regime, ...] = ()

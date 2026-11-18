@@ -82,6 +82,9 @@ class DecisionEngine:
         self.active_enabled = False
         self.active_risk_pct = 0.02
         self.active_vol_k = 1.0
+        #: CFE (separate paper account): on/off and risk per setup (% capital)
+        self.cfe_enabled = False
+        self.cfe_risk_pct = 0.5
         #: coins allowed to open trades (top by 30-day volume); None = all
         self.allowed_symbols: set[str] | None = None
 
@@ -169,10 +172,11 @@ class DecisionEngine:
         for strat in self.strategies:
             if outside and not strat.any_coin:
                 continue
-            if strat.any_coin:
-                if not self.active_enabled:
-                    continue
-            elif strat.exploration and not self.explore_enabled:
+            gate = getattr(strat, "gate", None) or (
+                "active" if strat.any_coin else ("explore" if strat.exploration else None))
+            if gate is not None and not {"active": self.active_enabled,
+                                         "explore": self.explore_enabled,
+                                         "cfe": self.cfe_enabled}.get(gate, False):
                 continue
             # the trend portfolio is judged as a whole (its wins cluster, a
             # per-coin PF on a few trades is noise) - no per-coin pruning
@@ -191,9 +195,11 @@ class DecisionEngine:
                 res.notes.append(f"{strat.name}: invalid SL/TP layout, discarded")
                 continue
             if sig.exploration:
+                base = max(1e-9, self.risk.limits.effective_risk_pct())
                 if sig.sleeve == "active":
-                    base = max(1e-9, self.risk.limits.effective_risk_pct())
                     sig.risk_scale = self.active_risk_pct * self.active_vol_k / base
+                elif sig.sleeve == "cfe":
+                    sig.risk_scale = self.cfe_risk_pct / base
                 else:
                     sig.risk_scale = self.explore_risk_scale
             res.evaluated.append(self.score(sig, ctx))
@@ -207,7 +213,7 @@ class DecisionEngine:
         res.evaluated.sort(key=lambda s: (not s.signal.exploration, s.score), reverse=True)
         res.best = res.evaluated[0]
         for other in res.evaluated[1:]:
-            if other.signal.sleeve == "active":
+            if other.signal.sleeve in ("active", "cfe"):
                 v = self.risk.check(other.signal, account, ctx.spread_pct)
                 if v.approved:
                     res.extra.append((other, v))

@@ -61,6 +61,8 @@ class ExecutionService:
         self.state = "running"
         self._pending_entry: dict[str, dict] = {}   # client_order_id -> decision detail
         self._closing: set[str] = set()             # close requested, awaiting fill
+        self._groups: dict[str, dict] = {}          # scaled-exit groups (CFE)
+        self._group_of: dict[str, str] = {}
         self._processed_commands: set[str] = set()
         self._tasks: list[asyncio.Task] = []
         broker.on_fill = self._on_fill
@@ -138,6 +140,8 @@ class ExecutionService:
         for pos in list(self.portfolio.positions.values()):
             if pos.symbol != symbol or pos.client_order_id in self._closing:
                 continue
+            if pos.strategy == "cfe":
+                continue           # CFE: break-even / lock rules on its parts only
             if pos.strategy in FLIP_EXIT_NAMES:
                 # exits only when its system points the other way (+ safety stop)
                 st = FLIP_STATE.get((pos.strategy, pos.symbol))
@@ -228,30 +232,78 @@ class ExecutionService:
             return
         # NOTE live: an exchange nets positions per contract, so separate
         # accounts on the same coin need sub-accounts before going live
-        coid = new_client_order_id()
-        self._pending_entry[coid] = {
-            "decision": decision, "stop_loss": sig["stop_loss"],
-            "take_profit": sig["take_profit"], "strategy": sig["strategy"],
-            "risk_pct": risk.get("risk_pct", 0.0),
-            "leverage": risk.get("leverage", 1.0),
-            "margin": risk.get("margin", 0.0),
-            "liq_price": risk.get("liq_price"),
-            "entry_reason": "; ".join(sig.get("reasons", []))[:500],
-        }
+        # a setup whose limit still rests in the book counts as taken
+        if not flip and any(
+                ((d.get("decision") or {}).get("best") or {}).get("signal", {}).get("symbol") == symbol
+                and (SLEEVE_OF.get(d.get("strategy", "")) or "") == sleeve
+                for d in self._pending_entry.values()):
+            return
         tf_s = float(sig.get("expire_s") or 0) or {
             "1m": 60, "5m": 300, "15m": 900, "1h": 3600,
             "4h": 14400}.get(sig.get("timeframe"), 14400)
-        self.broker.submit_bracket(BracketOrder(
-            client_order_id=coid, symbol=symbol, direction=sig["direction"],
-            quantity=risk["quantity"], stop_loss=sig["stop_loss"],
-            take_profit=sig["take_profit"], strategy=sig["strategy"],
-            leverage=risk.get("leverage", 1.0),
+        entry_type = sig.get("entry_type") or (
             # the AI's level IS the trade (limit); the trend portfolio enters at
             # market as researched (a resting limit misses the best flips)
-            entry={"ai": "limit", "active": "market"}.get(sig.get("sleeve") or "",
-                                                          self.entry_order),
-            limit_price=float(sig.get("entry") or 0.0),
-            expire_s=float(tf_s)))
+            {"ai": "limit", "active": "market"}.get(sleeve, self.entry_order))
+        # scaled exit (CFE): equal parts with their own take-profit; the
+        # parts form a group so TP1 can move the others to break-even
+        tps = [float(x) for x in (sig.get("tps") or [])] or [sig["take_profit"]]
+        qty = float(risk["quantity"]) / len(tps)
+        group = new_client_order_id() if len(tps) > 1 else None
+        legs = []
+        for k, tp in enumerate(tps):
+            coid = new_client_order_id()
+            legs.append(coid)
+            self._pending_entry[coid] = {
+                "decision": decision, "stop_loss": sig["stop_loss"],
+                "take_profit": tp, "strategy": sig["strategy"],
+                "risk_pct": risk.get("risk_pct", 0.0) / len(tps),
+                "leverage": risk.get("leverage", 1.0),
+                "margin": risk.get("margin", 0.0) / len(tps),
+                "liq_price": risk.get("liq_price"),
+                "entry_reason": "; ".join(sig.get("reasons", []))[:500]
+                + (f" [časť {k + 1}/{len(tps)}]" if group else ""),
+            }
+        if group:
+            self._groups[group] = {"legs": legs, "tps": tps, "direction": sig["direction"],
+                                   "entry": float(sig.get("entry") or 0.0), "stage": 0}
+            for c in legs:
+                self._group_of[c] = group
+        for coid, tp in zip(legs, tps):
+            self.broker.submit_bracket(BracketOrder(
+                client_order_id=coid, symbol=symbol, direction=sig["direction"],
+                quantity=qty, stop_loss=sig["stop_loss"], take_profit=tp,
+                strategy=sig["strategy"], leverage=risk.get("leverage", 1.0),
+                entry=entry_type, limit_price=float(sig.get("entry") or 0.0),
+                expire_s=float(tf_s), cancel_price=float(sig.get("cancel_price") or 0.0),
+                fill_through=bool(group)))
+
+    def _on_group_tp(self, coid: str) -> None:
+        """A part of a scaled exit hit its take-profit: TP1 -> the other parts
+        to break-even, TP2 -> the last part's stop to TP1 (CFE rules)."""
+        gid = self._group_of.get(coid)
+        g = self._groups.get(gid) if gid else None
+        if g is None:
+            return
+        g["stage"] += 1
+        long_ = g["direction"] == "LONG"
+        if g["stage"] == 1:
+            first = next((p for c in g["legs"] if (p := self.portfolio.positions.get(c))), None)
+            target = first.entry_price if first is not None else g["entry"]
+            why = "break-even po TP1"
+        elif g["stage"] == 2:
+            target, why = g["tps"][0], "stop na TP1 po TP2"
+        else:
+            return
+        for c in g["legs"]:
+            pos = self.portfolio.positions.get(c)
+            if pos is None or c in self._closing:
+                continue
+            better = target > pos.stop_loss if long_ else target < pos.stop_loss
+            if better and self.broker.update_stop(c, target):
+                pos.stop_loss = target
+                pos.be_done = True
+                self._db.audit("trade", f"{pos.symbol}: SL -> {target:.6g} ({why})")
 
     def cancel_resting(self, symbol: str, strategy: str) -> int:
         """Cancel resting (unfilled) limit entries of one strategy on one
@@ -273,7 +325,18 @@ class ExecutionService:
                 return True
         return False
 
+    def _forget_group_if_done(self, coid: str) -> None:
+        gid = self._group_of.get(coid)
+        g = self._groups.get(gid) if gid else None
+        if g is None:
+            return
+        if not any(c in self.portfolio.positions or c in self._pending_entry for c in g["legs"]):
+            for c in g["legs"]:
+                self._group_of.pop(c, None)
+            self._groups.pop(gid, None)
+
     def _on_entry_cancel(self, client_order_id: str, reason: str) -> None:
+        self._forget_group_if_done(client_order_id)
         detail = self._pending_entry.pop(client_order_id, None)
         if detail is None:
             return
@@ -316,6 +379,9 @@ class ExecutionService:
                                             fill.fee, reason=fill.kind)
             if pl is None:
                 return
+            if fill.kind == "take_profit":
+                self._on_group_tp(fill.client_order_id)
+            self._forget_group_if_done(fill.client_order_id)
             self._db.audit("trade", f"CLOSE {fill.symbol} ({fill.kind}) "
                            f"P/L {pl:+.2f}", data={"price": fill.price})
             self._bus.publish(TRADE_EVENT, {

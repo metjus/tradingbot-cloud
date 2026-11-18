@@ -24,7 +24,7 @@ import sys
 import time
 import urllib.request
 
-API = os.environ.get("ARGUS_API", "http://127.0.0.1:7421")
+API = os.environ.get("ARGUS_API", "http://127.0.0.1:7422")   # ARGUS CFE (ARGUS uses 7421)
 FROZEN = bool(getattr(sys, "frozen", False))
 
 
@@ -92,7 +92,7 @@ def start_engine() -> subprocess.Popen | None:
 
 def log_path() -> str:
     if os.name == "nt":
-        return os.path.join(os.environ.get("APPDATA", ""), "ARGUS", "logs", "argus.log")
+        return os.path.join(os.environ.get("APPDATA", ""), "ARGUS-CFE", "logs", "argus.log")
     return os.path.join(os.environ.get("ARGUS_HOME", os.path.join(os.getcwd(), "data")),
                         "logs", "argus.log")
 
@@ -132,7 +132,7 @@ def run_shell() -> None:
     class Shell(QMainWindow):
         def __init__(self) -> None:
             super().__init__()
-            self.setWindowTitle("ARGUS — Autonomous Trading Intelligence")
+            self.setWindowTitle("ARGUS CFE — samostatná verzia so stratégiou CFE (paper)")
             self.setWindowIcon(make_icon())
             self.resize(1440, 900)
             self.view = QWebEngineView()
@@ -149,7 +149,7 @@ def run_shell() -> None:
             menu.addSeparator()
             menu.addAction(quit_)
             self.tray.setContextMenu(menu)
-            self.tray.setToolTip("ARGUS beží — obchodný engine je aktívny")
+            self.tray.setToolTip("ARGUS CFE beží — obchodný engine je aktívny")
             self.tray.activated.connect(
                 lambda r: self.show_window() if r == QSystemTrayIcon.Trigger else None)
             self.tray.show()

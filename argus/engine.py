@@ -76,8 +76,10 @@ class Engine:
         if venue(self.runtime["fee_venue"]).futures:
             from .strategy.futures import (ACTIVE_STRATEGIES, EXPLORATION_STRATEGIES,
                                            FUTURES_STRATEGIES)
+            from .strategy.cfe_strategy import CfeStrategy
+            self.cfe = CfeStrategy()
             strategies = (list(FUTURES_STRATEGIES) + list(EXPLORATION_STRATEGIES)
-                          + list(ACTIVE_STRATEGIES))
+                          + list(ACTIVE_STRATEGIES) + [self.cfe])
         self.decision_engine = DecisionEngine(self.risk, strategies=strategies,
                                               enter_threshold=self.runtime["enter_threshold"],
                                               ml_scorer=ml_scorer, selector=self.selector)
@@ -277,19 +279,21 @@ class Engine:
     # the trend portfolio: its trades cluster (win rate ~36 %) - 40 % of all
     # 500-trade windows of a PF 1.43 history have PF < 1 - so the PF verdict
     # waits ~8 months; the loss cap catches a real breakdown earlier
-    SLEEVE_MIN_TRADES = {"active": 3000}
-    SLEEVE_MAX_LOSS_PCT = {"active": 25.0}
+    SLEEVE_MIN_TRADES = {"active": 3000, "cfe": 150}
+    SLEEVE_MAX_LOSS_PCT = {"active": 25.0, "cfe": 10.0}
 
     SLEEVE_SETTING = {"explore": "explore_enabled", "ai": "ai_trader_enabled",
-                      "active": "active_enabled"}
-    SLEEVE_LABEL = {"explore": "Skúšobný režim", "ai": "AI trader", "active": "Aktívny režim"}
+                      "active": "active_enabled", "cfe": "cfe_enabled"}
+    SLEEVE_LABEL = {"explore": "Skúšobný režim", "ai": "AI trader", "active": "Aktívny režim",
+                    "cfe": "CFE"}
 
     def explore_status(self, sleeve: str = "explore") -> dict:
         st = self.portfolio.explore_stats(sleeve)
         rs = self.runtime
         scale = {"explore": rs["explore_risk_scale"], "ai": rs["ai_risk_scale"],
                  "active": rs["active_risk_pct"] * self.decision_engine.active_vol_k
-                 / max(1e-9, rs["risk_per_trade_pct"])}[sleeve]
+                 / max(1e-9, rs["risk_per_trade_pct"]),
+                 "cfe": rs["cfe_risk_pct"] / max(1e-9, rs["risk_per_trade_pct"])}[sleeve]
         if sleeve == "explore":
             max_open, max_daily = (self.risk.limits.max_explore_positions,
                                    self.risk.limits.max_explore_daily)
@@ -302,6 +306,11 @@ class Engine:
                        sleeve, self.EXPLORE_MAX_LOSS_PCT) / 100.0, 2),
                    "max_daily": max_daily, "max_open": max_open,
                    "disabled_reason": self._sleeve_off_reason.get(sleeve)})
+        if sleeve == "cfe" and getattr(self, "cfe", None) is not None:
+            st.update({"coins": len(self.crypto_symbols), "min_score": rs["cfe_min_score"],
+                       "htf_min": rs["cfe_htf_min"], "session": rs["cfe_session"],
+                       "entry_mode": rs["cfe_entry_mode"],
+                       "watch": dict(sorted(self.cfe.last.items()))})
         if sleeve == "active":
             from .strategy.futures import ACTIVE_STRATEGIES
             st.update({"coins": rs["active_coins"], "systems": len(ACTIVE_STRATEGIES),
@@ -491,6 +500,12 @@ class Engine:
         self.decision_engine.explore_risk_scale = rs["explore_risk_scale"]
         self.decision_engine.active_enabled = rs["active_enabled"] and v.futures
         self.decision_engine.active_risk_pct = rs["active_risk_pct"]
+        self.decision_engine.cfe_enabled = rs["cfe_enabled"] and v.futures
+        self.decision_engine.cfe_risk_pct = rs["cfe_risk_pct"]
+        if getattr(self, "cfe", None) is not None:
+            self.cfe.params = {"min_score": rs["cfe_min_score"], "htf_min": rs["cfe_htf_min"],
+                               "session_filter": rs["cfe_session"]}
+            self.cfe.entry_mode = rs["cfe_entry_mode"]
         self.executor.entry_order = rs["entry_order"]
         ep = self.executor.exit_params
         ep.enabled = rs["adaptive_exits"]
@@ -686,7 +701,8 @@ class Engine:
             from .marketdata.kraken_futures import fetch_history
             for sym in self.crypto_symbols:
                 # 1h: 150 days - the trend portfolio's 8h systems need EMA200
-                for days, res in ((4, "15m"), (150, "1h"), (90, "4h")):
+                # 15m: 25 days - CFE runs on a 2000-bar 15m window
+                for days, res in ((25, "15m"), (150, "1h"), (90, "4h")):
                     try:
                         bars = await fetch_history(sym, days, res)
                         if bars:

@@ -136,6 +136,8 @@ class AnalysisService:
         # one of its 2h-8h bars has just closed)
         ctx.extras["h1_loader"] = lambda: self._db.get_candles(symbol, Timeframe.H1,
                                                                 limit=HISTORY_H1)
+        ctx.extras["m15_loader"] = lambda: self._db.get_candles(symbol, Timeframe.M15,
+                                                                 limit=2000)
         self.last_vol_fade[symbol] = self._vol_fade(candles.get(Timeframe.H4) or [])
         result = self._engine.evaluate(ctx, account)
         self.last_regime[symbol] = result.regime

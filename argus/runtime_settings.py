@@ -71,6 +71,13 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     "active_enabled": (True, bool, None, None),
     "active_coins": (20, int, 5, 30),
     "active_risk_pct": (0.02, float, 0.005, 0.1),
+    # CFE (separate paper account, separate app version)
+    "cfe_enabled": (True, bool, None, None),
+    "cfe_risk_pct": (0.5, float, 0.05, 2.0),
+    "cfe_min_score": (70.0, float, 0.0, 100.0),
+    "cfe_htf_min": (1.0, float, 0.0, 1.0),
+    "cfe_session": (True, bool, None, None),
+    "cfe_entry_mode": ("limit", str, None, None),
     # AI trader: an LLM decides limit levels on the 15m chart every 30 min
     "ai_trader_enabled": (True, bool, None, None),
     "ai_symbols": (["BTC/USD"], list, None, None),
@@ -92,6 +99,7 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
 CHOICES = {
     "fee_venue": list(VENUES),
     "entry_order": ["limit", "market"],
+    "cfe_entry_mode": ["limit", "market"],
     "llm_provider": ["none", "claude", "openai", "gemini"],
 }
 

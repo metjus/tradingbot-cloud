@@ -1,5 +1,12 @@
 # Zoznam zmien
 
+## ARGUS CFE (samostatná verzia, vetva claude/argus-cfe-strategy)
+
+Stratégia CFE z výskumu ako samostatný paper účet a samostatná aplikácia
+(vedľa hlavného ARGUS). Podrobnosti, testy a backtest: docs/CFE.md.
+Backtest: 1 448 obchodov za 2 roky, −0,022 R na obchod po poplatkoch -
+iba paper.
+
 ## 1.2.x - graf po kliknutí na pozíciu, bezpečnejšie zatváranie z mobilu
 
 - **Klik na otvorenú pozíciu zobrazí graf** - vo Windows appke sa hlavný
