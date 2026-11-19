@@ -166,6 +166,15 @@ class Engine:
                                           and hasattr(self.ticker, "info") else None),
             account_provider=self.portfolio.account_state)
 
+        from .trading.scalp import ScalpService
+        self.scalp = ScalpService(self.db, self.bus, self.health, self.risk, self.executor,
+                                  self.portfolio, spread_provider=self._spread_for,
+                                  regime_provider=self.analysis.last_regime.get)
+        self.scalp.symbols = list(self.crypto_symbols[:self.runtime["scalp_coins"]])
+        if self.runtime.scalp_switch:
+            # new plan: a fresh paper account with the simulated start capital
+            self.reset_paper(self.settings.paper_equity, reason="nový plán - rýchle obchody")
+
         self.apply_settings()
         self.runtime.on_change(lambda _changed: self.apply_settings())
         try:
@@ -479,6 +488,62 @@ class Engine:
         return {"capital": round(self.portfolio.equity, 2), "delta": round(delta, 2),
                 "budget_eur": self.runtime["budget_eur"]}
 
+    def reset_paper(self, capital: float, reason: str = "reset") -> dict:
+        """Fresh paper account: close what is open (at market when a price
+        is known), archive the history, start again with ``capital``. The
+        bot budget follows the new capital."""
+        closed, _ = self.executor.close_all("reset")
+        self.executor._closing.clear()
+        if hasattr(self.broker, "_positions"):
+            self.broker._positions.clear()            # leftovers without a price
+        archived = self.portfolio.reset(capital)
+        self.executor.target_reached = False
+        self._sleeve_off_reason.clear()
+        changes = {"budget_eur": float(capital)}
+        if self.runtime["max_position_eur"] > capital:
+            changes["max_position_eur"] = float(capital)
+        if self.runtime["target_capital_eur"] and self.runtime["target_capital_eur"] <= capital:
+            changes["target_capital_eur"] = 0.0
+        self.runtime.update(changes)
+        self.db.audit("system", f"Paper účet resetovaný na {float(capital):.2f} € ({reason}); "
+                      f"archivované obchody: {archived}, zatvorené pozície: {closed}")
+        return {"capital": round(self.portfolio.equity, 2), "archived": archived,
+                "closed": closed}
+
+    def scalp_status(self) -> dict:
+        from .db.schema import Trade
+        from sqlalchemy import select
+        sc = self.scalp
+        with self.db.session() as s:
+            rows = s.execute(select(Trade.pl, Trade.fees, Trade.exit_ts, Trade.exit_reason)
+                             .where(Trade.status == "closed", Trade.mode == self.portfolio.mode,
+                                    Trade.strategy == "scalp")).all()
+        today = time.time() // 86400
+        pls = [r[0] or 0.0 for r in rows]
+        wins = [p for p in pls if p > 0]
+        losses = [p for p in pls if p <= 0]
+        t_rows = [r for r in rows if r[2] is not None and r[2].timestamp() // 86400 == today]
+        used, margin = self.executor.sleeve_usage("scalp")
+        return {
+            "enabled": sc.enabled, "kind": sc.kind, "slots": sc.slots, "used": used,
+            "margin_used": round(margin, 2), "symbols": sc.symbols,
+            "target_eur": round(sc.target_now(), 2), "target_eur_start": sc.target_eur,
+            "sl_pct": sc.sl_pct, "hold_min": round(self.executor.scalp_hold_s / 60),
+            "leverage": self.risk.limits.leverage,
+            "trades": len(pls), "today": len(t_rows),
+            "today_pl": round(sum(r[0] or 0.0 for r in t_rows), 2),
+            "net_pl": round(sum(pls), 2), "fees": round(sum(r[1] or 0.0 for r in rows), 2),
+            "win_rate": round(len(wins) / len(pls) * 100, 1) if pls else None,
+            "avg_win": round(sum(wins) / len(wins), 2) if wins else None,
+            "avg_loss": round(sum(losses) / len(losses), 2) if losses else None,
+            "exits": {k: sum(1 for r in rows if r[3] == k)
+                      for k in ("take_profit", "stop_loss", "time_stop")},
+            "signals": sc.signals, "last_signal": sc.last_signal, "last_skip": sc.last_skip,
+            "target_capital": self.executor.target_capital,
+            "target_reached": self.executor.target_reached,
+            "live_equity": round(self.executor.live_equity(), 2),
+        }
+
     def apply_settings(self) -> None:
         rs = self.runtime
         cost = round_trip_cost_pct(rs["fee_venue"], 
@@ -507,6 +572,21 @@ class Engine:
         self.decision_engine.active_enabled = rs["active_enabled"] and v.futures
         self.decision_engine.active_risk_pct = rs["active_risk_pct"]
         self.executor.entry_order = rs["entry_order"]
+        self.decision_engine.legacy_enabled = rs["legacy_enabled"]
+        sc = getattr(self, "scalp", None)
+        if sc is not None:
+            sc.enabled = rs["scalp_enabled"] and v.futures
+            sc.kind = rs["scalp_kind"]
+            sc.slots = rs["scalp_slots"]
+            sc.target_eur = rs["scalp_target_eur"]
+            sc.sl_pct = rs["scalp_sl_pct"]
+            sc.valid_min = rs["scalp_valid_min"]
+        self.executor.scalp_hold_s = rs["scalp_hold_min"] * 60.0
+        target = rs["target_capital_eur"]
+        if target != self.executor.target_capital:
+            # a raised or switched-off target lets trading continue
+            self.executor.target_reached = False
+        self.executor.target_capital = target
         ep = self.executor.exit_params
         ep.enabled = rs["adaptive_exits"]
         ep.reduce_risk_at_r = rs["reduce_risk_at_r"]
@@ -596,7 +676,8 @@ class Engine:
             return                     # explicit config (env/.env/tests) wins
         n = rs["max_symbols"]
         # active mode trades a wider set; the focused strategy only the top n
-        want = max(n + 3, rs["active_coins"] if rs["active_enabled"] else 0)
+        want = max(n + 3, rs["active_coins"] if rs["active_enabled"] else 0,
+                   rs["scalp_coins"] if rs["scalp_enabled"] else 0)
         try:
             # the wider active set goes down to 1 M$/day (positions there are
             # tiny: a tenth of the risk); the focused top n stay the giants
@@ -613,6 +694,8 @@ class Engine:
         if "BTC/USD" not in syms:
             syms.insert(0, "BTC/USD")          # BTC data drives the trend filter
         self.crypto_symbols = syms
+        # scalp: the most liquid coins (tightest spreads), by 30-day volume
+        self.scalp.symbols = [u["symbol"] for u in uni[:rs["scalp_coins"]]]
         # trade only the top N by 30-day USD volume; the rest is watched so
         # the daily re-ranking can promote it without a restart
         self.decision_engine.allowed_symbols = {u["symbol"] for u in uni[:n]}
@@ -787,6 +870,7 @@ class Engine:
         self.analysis.start()
         self.executor.start()
         self.ai_trader.start()
+        self.scalp.start()
         if hasattr(self.broker, "start"):
             self.broker.start()
         self.ml_scheduler.start()
@@ -831,6 +915,7 @@ class Engine:
             self.analysis.stop()
             self.executor.stop()
             self.ai_trader.stop()
+            self.scalp.stop()
             self.ml_scheduler.stop()
             if hasattr(self.broker, "stop"):
                 await self.broker.stop()

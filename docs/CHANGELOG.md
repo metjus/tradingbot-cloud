@@ -1,5 +1,41 @@
 # Zoznam zmien
 
+## 1.2.x - nový plán: rýchle obchody (paper pokus), cieľový kapitál, reset účtu
+
+- **Rýchle obchody** (Nastavenia -> Rýchle obchody, karta na Prehľade):
+  veľa malých obchodov na 1-minútových sviečkach 10 najlikvidnejších mincí.
+  - vstup limitom (maker 0,02 %) na úrovni signálu, platný 5 minút;
+  - take-profit limitom tak, aby ziskový obchod zarobil **1,50 € po oboch
+    poplatkoch**; cieľ rastie s kapitálom (celý zisk ide do ďalších obchodov);
+  - stop-loss 0,6 % trhovým príkazom (0,05 % + sklz), max. držanie 60 min;
+  - až **5 pozícií naraz** (jedna na mincu), každá s kapitálom / 5 ako
+    zálohou × páka;
+  - typ vstupu: prerazenie 15-min maxima/minima s objemom (limit na
+    prerazenej úrovni) alebo návrat k 60-min priemeru.
+- **Staré stratégie** (4h, trendové portfólio, skúšobný režim) a **AI
+  trader** sú vypnuté; analýza trhu (režim, trend, objem, sentiment,
+  správy, kalendár) beží ďalej.
+- **Štart: paper účet 300 €, páka 5×, denný limit straty 5 %.** Pri prvom
+  spustení tejto verzie sa paper účet raz resetuje na 300 € (staré obchody
+  sa odložia do archívu, nezmažú sa).
+- **Cieľový kapitál** (Peniaze a riziko): keď kapitál vrátane otvorených
+  pozícií (po poplatkoch za zatvorenie) dosiahne cieľ, bot všetko zatvorí
+  a neobchoduje, kým cieľ nezvýšiš alebo nenastavíš 0.
+- **Reset paper účtu** (tlačidlo v Peniaze a riziko): zatvorí pozície,
+  archivuje históriu a začne so zadaným kapitálom - na porovnanie napr.
+  páky 5× a 10× od nuly.
+- **Kapitál účtu** sa dá nastaviť priamo (vklad / výber).
+
+**Výsledok výskumu (bez prikrášľovania):** 400 dní minútových dát Kraken
+Futures, 10 mincí, ~7 500 kombinácií vstupov a výstupov s presnými
+poplatkami. **Žiadna nezarobila po poplatkoch** - ani na polovici dát,
+na ktorej sa vyberalo. Pred poplatkami vychádza -0,02 až -0,05 % na
+obchod, poplatky a sklz 0,05-0,06 %. Predvolené nastavenie dáva
+v simulácii najviac obchodov (~58 denne, priemerný zisk 1,48 €), ale
+kapitál 300 € klesal o denný limit: ~244 € po týždni, ~66 € po mesiaci.
+Vyššia páka stratu na obchod zväčšuje. Beží iba ako paper pokus; ostré
+peniaze nikdy bez výslovného rozhodnutia.
+
 ## 1.2.x - graf po kliknutí na pozíciu, bezpečnejšie zatváranie z mobilu
 
 - **Klik na otvorenú pozíciu zobrazí graf** - vo Windows appke sa hlavný

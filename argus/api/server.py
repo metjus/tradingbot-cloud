@@ -80,6 +80,22 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
         snap["bot_state"] = executor.state if executor else "unknown"
         return snap
 
+    @app.get("/api/scalp")
+    def api_scalp() -> dict:
+        if engine is None:
+            return {"available": False}
+        return {"available": True, **engine.scalp_status()}
+
+    @app.post("/api/portfolio/reset")
+    def api_portfolio_reset(payload: dict) -> JSONResponse:
+        if engine is None:
+            return JSONResponse({"ok": False, "error": "engine unavailable"}, 400)
+        try:
+            res = engine.reset_paper(float(payload.get("capital") or 0.0))
+        except (ValueError, TypeError) as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, 400)
+        return JSONResponse({"ok": True, **res})
+
     @app.get("/api/trades")
     def api_trades(limit: int = 100) -> dict:
         if portfolio is None:
@@ -448,6 +464,7 @@ def create_app(db: Database, bus: EventBus, health: HealthMonitor,
                  for w in a.watch.values()]
         return {"coins": sorted(coins, key=lambda w: (not w["tradable"], w["symbol"])),
                 "evaluations": a.evaluations,
+                "legacy_enabled": engine.decision_engine.legacy_enabled,
                 "strategies": [s.name for s in engine.decision_engine.strategies]}
 
     @app.get("/api/decisions")

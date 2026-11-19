@@ -151,6 +151,10 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
         </div>
         <div class="col-side">
           <div class="card">
+            <div class="label" style="margin-bottom:6px">Rýchle obchody</div>
+            <div id="dash-scalp" class="small">—</div>
+          </div>
+          <div class="card">
             <div class="label" style="margin-bottom:6px">Aktívny režim</div>
             <div id="dash-active" class="small">—</div>
           </div>
@@ -311,6 +315,21 @@ input[type=number],input[type=text],input[type=password]{background:var(--inset)
           <button class="btn-primary btn-sm" onclick="saveSettings()">Uložiť nastavenia</button>
         </div>
         <div class="form" id="form-money"></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+          <button class="btn-danger btn-sm" onclick="resetPaper()">Reset paper účtu</button>
+          <span class="small" style="color:var(--muted)">Zatvorí otvorené pozície, doterajšie obchody odloží do archívu
+            (štatistiky začnú od nuly) a účet začne znova so zadaným kapitálom.</span>
+        </div>
+      </div>
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span class="label">Rýchle obchody</span><span class="spacer"></span>
+          <button class="btn-primary btn-sm" onclick="saveSettings()">Uložiť nastavenia</button>
+        </div>
+        <div class="banner-danger" style="margin-bottom:10px">Paper pokus: v teste na 400 dňoch dát z Krakenu
+          žiadne nastavenie po poplatkoch nezarábalo (minútové pohyby sú menšie ako poplatky). Ostré peniaze iba po
+          tvojom výslovnom rozhodnutí.</div>
+        <div class="form" id="form-scalp"></div>
       </div>
       <div class="card">
         <div class="label" style="margin-bottom:10px">Burza a poplatky</div>
@@ -607,6 +626,42 @@ async function refreshAI(){
     <div class="small" style="color:var(--muted);margin-top:6px">Automatické vypnutie: PF pod 1,0 po ${x.min_trades ?? 20} obchodoch, alebo čistá strata nad ${x.max_loss_eur ?? "—"} €.</div>`;
 }
 
+// --- scalp mode ---
+async function refreshScalp(){
+  let x;
+  try { x = await api("/api/scalp"); } catch(e){ return; }
+  const el = $("dash-scalp");
+  if (!el || !x.available) return;
+  const state = x.target_reached
+    ? `${sdot("warn")}<b>cieľový kapitál ${x.target_capital} € dosiahnutý</b> - neobchoduje (zvýš cieľ alebo nastav 0)`
+    : x.enabled ? `${sdot("profit")}<b>zapnuté</b> · ${x.used}/${x.slots} pozícií · páka ${x.leverage}× · ${(x.symbols||[]).length} mincí`
+    : `${sdot("warn")}<b>vypnuté</b>`;
+  const w = x.win_rate != null ? x.win_rate.toFixed(1) + " %" : "—";
+  el.innerHTML = `<div style="margin-bottom:6px">${state}</div>
+    <div style="color:var(--text2);margin-bottom:8px">Cieľ ziskového obchodu teraz <b>${x.target_eur.toFixed(2)} €</b> po poplatkoch
+      (rastie s kapitálom), stop ${x.sl_pct} %, max. ${x.hold_min} min. Paper pokus - v teste po poplatkoch prerábal.</div>
+    <div class="list-item"><span>Obchody</span><span class="spacer"></span><span class="mono">${x.trades} (dnes ${x.today})</span></div>
+    <div class="list-item"><span>Dnes</span><span class="spacer"></span><span class="mono ${cls(x.today_pl)}">${fmtEur(x.today_pl)}</span></div>
+    <div class="list-item"><span>Výsledok po poplatkoch</span><span class="spacer"></span><span class="mono ${cls(x.net_pl)}">${fmtEur(x.net_pl)}</span></div>
+    <div class="list-item"><span>Zaplatené poplatky</span><span class="spacer"></span><span class="mono">${(x.fees ?? 0).toFixed(2)} €</span></div>
+    <div class="list-item"><span>Úspešnosť</span><span class="spacer"></span><span class="mono">${w}</span></div>
+    <div class="list-item"><span>Priemerný zisk / strata</span><span class="spacer"></span><span class="mono"><span class="profit">${x.avg_win != null ? "+" + x.avg_win.toFixed(2) : "—"}</span> / <span class="loss">${x.avg_loss != null ? x.avg_loss.toFixed(2) : "—"}</span> €</span></div>
+    <div class="list-item"><span>Výstupy TP / stop / čas</span><span class="spacer"></span><span class="mono">${x.exits.take_profit} / ${x.exits.stop_loss} / ${x.exits.time_stop}</span></div>
+    <div class="list-item"><span>Kapitál vrátane otvorených</span><span class="spacer"></span><span class="mono">${x.live_equity.toFixed(2)} €</span></div>
+    ${x.last_skip ? `<div class="small" style="color:var(--muted);margin-top:6px">Posledný preskočený signál: ${esc(x.last_skip)}</div>` : ""}`;
+}
+async function resetPaper(){
+  const v = prompt("Reset paper účtu\n\nOtvorené pozície sa zatvoria, doterajšie obchody sa odložia do archívu a účet začne znova.\n\nŠtartovný kapitál (€):", "300");
+  if (v == null) return;
+  const capital = parseFloat(String(v).replace(",", "."));
+  if (!(capital >= 10)) return toast("Neplatná suma.");
+  const d = await post("/api/portfolio/reset", {capital});
+  if (!d.ok) return toast(`<span class="loss">Reset zlyhal:</span> ${esc(d.error || "?")}`, 6000);
+  toast(`<span class="profit">Paper účet resetovaný</span> na ${d.capital.toFixed(2)} € (archivované obchody: ${d.archived}).`, 6000);
+  await loadSettings();
+  refresh(); refreshSlow(); refreshScalp();
+}
+
 // --- exploration (trial) sleeve ---
 async function refreshExplore(){
   let x;
@@ -675,6 +730,10 @@ async function refreshWatch(){
   const riskLine = rg ? `<div style="margin-top:6px">Riziko na obchod: <b class="mono">${rg.risk_effective_pct}%</b>
     ${rg.guard_active ? `<span class="warn">(poistka aktívna: ${esc(rg.guard_reason || "")}; nastavené ${rg.risk_setting_pct}%)</span>` : ""}
     · max. ${rg.max_open_positions} ${rg.max_open_positions === 1 ? "pozícia" : "pozície"} naraz · výsledok stratégie naživo: ${rg.trades} obch.${rg.profit_factor != null ? `, PF ${rg.profit_factor}` : ""}</div>` : "";
+  if (w.legacy_enabled === false){
+    head.innerHTML = `Analýza trhu beží (režim, trend, objem, sentiment) - vyhodnotení: ${w.evaluations}.
+      Obchoduje režim <b>Rýchle obchody</b> na 1-minútových sviečkach; staré stratégie sú vypnuté.`;
+  } else
   head.innerHTML = `Bot vstupuje pri prekrížení trendu na <b>4h grafe</b>. Ďalšia 4h sviečka sa uzavrie
     o <b class="mono">${hhmm}</b> (o ${mins >= 60 ? Math.floor(mins/60) + " h " : ""}${mins % 60} min).
     <span style="color:var(--muted)">Vyhodnotení: ${w.evaluations}. Pauzy bez obchodu niekoľko hodín až dní sú normálne.</span>${riskLine}`;
@@ -1096,22 +1155,34 @@ async function refreshSlow(){
 const FIELDS = {
   "form-money": [
     ["paper_capital_eur", "Kapitál účtu (€)", "Koľko peňazí máš na (paper) účte - suma „Kapitál“ na prehľade. Zmena je ako vklad alebo výber: história obchodov a celkový zisk ostávajú. Ak rozpočet bota pokrýval celý kapitál, zmení sa spolu s ním."],
+    ["target_capital_eur", "Cieľový kapitál - stop obchodovania (€)", "Keď kapitál vrátane otvorených pozícií (po poplatkoch za zatvorenie) dosiahne túto sumu, bot všetky pozície zatvorí a ďalej neobchoduje. Pokračuje, keď cieľ zvýšiš alebo nastavíš 0 (vypnuté). Presne na cent to nevyjde - zatvára sa trhovým príkazom."],
     ["budget_eur", "Rozpočet bota (€)", "Koľko z kapitálu smie bot použiť. Riziko na obchod sa počíta z tejto sumy; ak je vyšší ako kapitál, platí kapitál."],
     ["max_position_eur", "Max. na jednu pozíciu (€)", "Najväčšia suma vložená do jedného obchodu."],
-    ["risk_per_trade_pct", "Riziko na obchod (%)", "Koľko % rozpočtu stratíš, ak obchod skončí na stop-losse. Odporúčané 2 % (~štvrtina Kellyho optima pre top 5 mincí a 1 pozíciu naraz). Max. 2 %."],
-    ["risk_guard", "Poistka rizika podľa výsledkov", "Ak naživo stratégia po 20 obchodoch prerába (PF pod 1,0) alebo má prepad 20 %, riziko sa samo zníži na 1 %, kým sa výsledky nezlepšia."],
-    ["daily_max_loss_pct", "Denný limit straty (%)", "Po dosiahnutí bot v daný deň neotvára nové obchody."],
-    ["max_open_positions", "Max. otvorených pozícií", "Odporúčané 1: jeden obchod naraz mal v teste polovičné prepady pri vyššom výnose."],
-    ["max_daily_trades", "Max. obchodov za deň", ""],
-    ["min_rr_net", "Min. zisk/riziko po poplatkoch", "Napr. 1,3 = cieľový zisk po poplatkoch musí byť aspoň 1,3× väčší ako riziko."],
-    ["enter_threshold", "Min. skóre na vstup (0-100)", "Vyššie = menej, ale kvalitnejších obchodov."],
+    ["risk_per_trade_pct", "Riziko na obchod (%) · staré stratégie", "Koľko % rozpočtu stratíš, ak obchod skončí na stop-losse. Odporúčané 2 % (~štvrtina Kellyho optima pre top 5 mincí a 1 pozíciu naraz). Max. 2 %."],
+    ["risk_guard", "Poistka rizika podľa výsledkov · staré stratégie", "Ak naživo stratégia po 20 obchodoch prerába (PF pod 1,0) alebo má prepad 20 %, riziko sa samo zníži na 1 %, kým sa výsledky nezlepšia."],
+    ["daily_max_loss_pct", "Denný limit straty (%)", "Po dosiahnutí bot v daný deň neotvára nové obchody. Pri rýchlych obchodoch 5 % (pri 300 € je to 15 €)."],
+    ["max_open_positions", "Max. otvorených pozícií · staré stratégie", "Odporúčané 1: jeden obchod naraz mal v teste polovičné prepady pri vyššom výnose."],
+    ["max_daily_trades", "Max. obchodov za deň · staré stratégie", ""],
+    ["min_rr_net", "Min. zisk/riziko po poplatkoch · staré stratégie", "Napr. 1,3 = cieľový zisk po poplatkoch musí byť aspoň 1,3× väčší ako riziko."],
+    ["enter_threshold", "Min. skóre na vstup (0-100) · staré stratégie", "Vyššie = menej, ale kvalitnejších obchodov."],
   ],
   "form-venue": [
     ["fee_venue", "Burza (poplatky a dáta)", "Kraken Futures = long aj short s pákou. Zmena platí po reštarte aplikácie."],
     ["entry_order", "Typ vstupného príkazu", "limit = lacnejší maker vstup presne na cene signálu (0,02 % a bez sklzu); ak cena neprída k limitu do jednej sviečky, vstup prepadne. market = istý vstup, drahší (0,05 % + sklz)."],
     ["slippage_pct", "Sklz na stranu (%)", "Rozdiel medzi očakávanou a skutočnou cenou."],
     ["allow_short", "Povoliť SHORT", "Na futures zarába aj na poklese ceny. Spotový trh shortovať nedovolí."],
-    ["leverage", "Páka (×)", "Páka NEMENÍ riziko obchodu (to určuje stop-loss a riziko na obchod) - znižuje iba sumu zablokovanú v pozícii. Odporúčané 3×, maximum pre EÚ retail 10×."],
+    ["leverage", "Páka (×)", "Pri rýchlych obchodoch je pozícia = záloha × páka, takže vyššia páka znamená väčšiu pozíciu a menší potrebný pohyb na cieľ, ale aj väčšiu stratu pri stope. Predvolené 5×, maximum pre EÚ retail 10×."],
+  ],
+  "form-scalp": [
+    ["scalp_enabled", "Rýchle obchody zapnuté", "Veľa malých obchodov na 1-minútových sviečkach najlikvidnejších mincí."],
+    ["scalp_kind", "Typ vstupu", "breakout = prerazenie 15-min maxima/minima s objemom, limit na prerazenej úrovni (v teste najviac obchodov pri cieli ~1,5 €). mean_reversion = cena 2 smerodajné odchýlky od 60-min priemeru, limit na cene."],
+    ["scalp_target_eur", "Cieľ zisku na obchod pri štarte (€)", "Čistý zisk ziskového obchodu po oboch poplatkoch. Rastie spolu s kapitálom (celý zisk ide do ďalších obchodov)."],
+    ["scalp_slots", "Max. pozícií naraz", "Každá pozícia dostane kapitál / tento počet ako zálohu (× páka). Viac pozícií = viac obchodov, ale menšia pozícia potrebuje väčší pohyb na rovnaký zisk."],
+    ["scalp_sl_pct", "Stop-loss (% od vstupu)", ""],
+    ["scalp_hold_min", "Max. držanie pozície (min)", "Potom sa pozícia zavrie trhovým príkazom."],
+    ["scalp_valid_min", "Platnosť limitného vstupu (min)", "Ak cena nepríde k úrovni, príkaz sa zruší."],
+    ["scalp_coins", "Počet mincí", "Najlikvidnejšie podľa 30-dňového objemu. Zmena platí po reštarte aplikácie."],
+    ["legacy_enabled", "Staré stratégie (4h, trendové portfólio, skúšobný režim)", "Vypnuté = obchodujú iba rýchle obchody. Analýza trhu beží vždy."],
   ],
   "form-exits": [
     ["adaptive_exits", "Adaptívne riadenie pozícií", "Postupné sťahovanie stop-lossu, ochrana zisku, reakcia na zvrat."],
@@ -1549,6 +1620,8 @@ refreshMarket();
 setInterval(refreshMarket, 10000);
 refreshWatch();
 setInterval(refreshWatch, 30000);
+refreshScalp();
+setInterval(refreshScalp, 10000);
 refreshExplore();
 setInterval(refreshExplore, 30000);
 refreshActive();

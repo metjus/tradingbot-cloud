@@ -267,3 +267,57 @@ class RiskSupervisor:
                            margin=notional / lev, leverage=lev, liq_price=liq_price,
                            cost_estimate=notional * L.round_trip_cost_pct / 100.0,
                            net_rr=net_rr)
+
+    # --- scalp mode ("rýchle obchody") -------------------------------------
+    def check_scalp(self, direction: str, entry: float, stop_loss: float,
+                    account: AccountState, slots: int, used_slots: int,
+                    used_margin: float = 0.0,
+                    spread_pct: float | None = None) -> RiskVerdict:
+        """Size one scalp position: capital / slots as margin times the
+        leverage. Hard limits still apply: halt, daily loss, short allowed,
+        spread, stop in front of the liquidation price, budget."""
+        L = self.limits
+        vetoes: list[str] = []
+        if self.halted:
+            vetoes.append(f"obchodovanie zastavené: {self.halt_reason or 'ručne'}")
+        if direction == "SHORT" and not L.allow_short:
+            vetoes.append("short nie je na spotovom trhu možný (iba LONG)")
+        if entry <= 0 or stop_loss <= 0 or stop_loss == entry:
+            vetoes.append("neplatný vstup alebo stop-loss")
+        if account.daily_pl_pct <= -L.daily_max_loss_pct:
+            vetoes.append(f"denný limit straty dosiahnutý ({account.daily_pl_pct:.2f}% "
+                          f"<= -{L.daily_max_loss_pct}%)")
+        if used_slots >= max(1, slots):
+            vetoes.append(f"rýchle obchody: max. {slots} pozícií naraz")
+        if spread_pct is not None and spread_pct > L.max_spread_pct:
+            vetoes.append(f"spread {spread_pct:.3f}% nad limitom {L.max_spread_pct}%")
+        lev = max(1.0, min(L.leverage, L.max_leverage))
+        liq_price: float | None = None
+        if entry > 0 and (lev > 1.0 or L.maintenance_margin_pct > 0):
+            move = 1.0 / lev - L.maintenance_margin_pct / 100.0
+            if move <= 0:
+                vetoes.append("páka je nad limitom burzy")
+            else:
+                sgn = 1.0 if direction == "LONG" else -1.0
+                liq_price = entry * (1.0 - sgn * move)
+                if abs(entry - stop_loss) > 0.7 * abs(entry - liq_price):
+                    vetoes.append(f"stop-loss je príliš blízko likvidačnej ceny pri páke {lev:g}x")
+        capital = self.capital(account)
+        margin = capital / max(1, slots)
+        if L.max_position_eur is not None:
+            margin = min(margin, L.max_position_eur)
+        free = capital - used_margin
+        if free < margin * 0.5:
+            vetoes.append("rozpočet bota je použitý v otvorených pozíciách")
+        margin = min(margin, max(0.0, free))
+        if margin <= 0:
+            vetoes.append("nulový obchodovateľný kapitál")
+        if vetoes:
+            return RiskVerdict(approved=False, vetoes=vetoes, leverage=lev, liq_price=liq_price)
+        notional = margin * lev
+        qty = notional / entry
+        stop_cost = abs(entry - stop_loss) * qty + notional * L.round_trip_cost_pct / 100.0
+        return RiskVerdict(approved=True, quantity=qty, risk_amount=stop_cost,
+                           risk_pct=stop_cost / account.equity * 100.0 if account.equity else 0.0,
+                           notional=notional, margin=margin, leverage=lev, liq_price=liq_price,
+                           cost_estimate=notional * L.round_trip_cost_pct / 100.0)

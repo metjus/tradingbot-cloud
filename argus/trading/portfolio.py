@@ -19,6 +19,9 @@ from ..risk import AccountState
 
 log = logging.getLogger(__name__)
 
+#: Trade.mode of trades archived by a paper-account reset (column is 8 chars)
+ARCHIVE_MODE = "archiv"
+
 
 def _explore_names() -> set[str]:
     from ..strategy.futures import EXPLORATION_NAMES
@@ -156,6 +159,32 @@ class Portfolio:
                 row.value = value
             s.commit()
         return delta
+
+    def reset(self, capital: float) -> int:
+        """Fresh paper account: every trade so far (open ones included) is
+        archived - kept in the database, out of the statistics - and the
+        account starts again with ``capital``. Returns archived trades."""
+        from sqlalchemy import update
+        capital = float(capital)
+        if not (self.MIN_CAPITAL <= capital <= self.MAX_CAPITAL):
+            raise ValueError(f"kapitál musí byť medzi {self.MIN_CAPITAL:.0f} "
+                             f"a {self.MAX_CAPITAL:.0f} €")
+        with self.db.session() as s:
+            n = s.execute(update(Trade).where(Trade.mode == self.mode)
+                          .values(mode=ARCHIVE_MODE)).rowcount
+            row = s.get(AppSetting, self._capital_key())
+            value = {"start_equity": capital}
+            if row is None:
+                s.add(AppSetting(key=self._capital_key(), value=value))
+            else:
+                row.value = value
+            s.commit()
+        self.positions.clear()
+        self.start_equity = capital
+        self.equity = capital
+        self._day = -1
+        self._roll_day()
+        return int(n or 0)
 
     def _recover_open_positions(self) -> None:
         with self.db.session() as s:

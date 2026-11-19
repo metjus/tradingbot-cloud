@@ -27,15 +27,18 @@ DEFAULT_SYMBOLS = ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD"]
 # name: (default, type, min, max)   min/max None = unchecked
 SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     # money the bot may use
-    "budget_eur": (10_000.0, float, 10.0, 10_000_000.0),
-    "max_position_eur": (2_500.0, float, 5.0, 10_000_000.0),
+    "budget_eur": (300.0, float, 10.0, 10_000_000.0),
+    # stop trading when the capital reaches this value: open positions are
+    # closed so the result is the target (0 = off)
+    "target_capital_eur": (0.0, float, 0.0, 10_000_000.0),
+    "max_position_eur": (300.0, float, 5.0, 10_000_000.0),
     # risk
     # 2 % ~ a quarter of the Kelly fraction measured for the focused setup
     # (top-5 coins by 30-day volume, one position at a time); hard ceiling 2 %
     "risk_per_trade_pct": (2.0, float, 0.05, 2.0),
     # evidence guard: back to 1 % when live results contradict the backtest
     "risk_guard": (True, bool, None, None),
-    "daily_max_loss_pct": (2.0, float, 0.2, 5.0),
+    "daily_max_loss_pct": (5.0, float, 0.2, 5.0),
     "max_open_positions": (1, int, 1, 20),
     "max_daily_trades": (15, int, 1, 200),
     "min_rr_net": (1.3, float, 1.0, 5.0),                 # reward/risk AFTER costs
@@ -50,7 +53,7 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     # futures only: position leverage (EU retail cap 10x on Kraken Futures).
     # Leverage does NOT change the risk per trade (that is set by the stop),
     # it only lowers the margin blocked per position.
-    "leverage": (3.0, float, 1.0, 10.0),
+    "leverage": (5.0, float, 1.0, 10.0),
     # adaptive exits
     "adaptive_exits": (True, bool, None, None),
     # defaults re-validated on 2y Kraken Futures data with the 4h strategies
@@ -63,6 +66,18 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     "sentiment_exit": (True, bool, None, None),
     "regime_exit": (True, bool, None, None),
     "volume_exit": (True, bool, None, None),
+    # scalp mode (rýchle obchody): many small trades on 1m bars, paper only
+    "scalp_enabled": (True, bool, None, None),
+    "scalp_kind": ("breakout", str, None, None),
+    "scalp_slots": (5, int, 1, 10),
+    "scalp_target_eur": (1.5, float, 0.2, 100.0),
+    "scalp_sl_pct": (0.6, float, 0.1, 3.0),
+    "scalp_hold_min": (60, int, 5, 1440),
+    "scalp_valid_min": (5, int, 1, 60),
+    "scalp_coins": (10, int, 3, 20),
+    # the strategies before the scalp mode (4h, trend portfolio, trial):
+    # off - the market analysis keeps running either way
+    "legacy_enabled": (False, bool, None, None),
     # exploration (skúšobný režim): trial strategy at a fraction of the risk,
     # auto-off when it loses after fees
     "explore_enabled": (True, bool, None, None),
@@ -72,7 +87,7 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
     "active_coins": (20, int, 5, 30),
     "active_risk_pct": (0.02, float, 0.005, 0.1),
     # AI trader: an LLM decides limit levels on the 15m chart every 30 min
-    "ai_trader_enabled": (True, bool, None, None),
+    "ai_trader_enabled": (False, bool, None, None),
     "ai_symbols": (["BTC/USD"], list, None, None),
     "ai_risk_scale": (0.25, float, 0.05, 0.5),
     "ai_model": ("", str, None, None),
@@ -92,10 +107,12 @@ SCHEMA: dict[str, tuple[Any, type, Any, Any]] = {
 CHOICES = {
     "fee_venue": list(VENUES),
     "entry_order": ["limit", "market"],
+    "scalp_kind": ["breakout", "mean_reversion"],
     "llm_provider": ["none", "claude", "openai", "gemini"],
 }
 
-RESTART_REQUIRED = {"symbols", "fee_venue", "auto_symbols", "max_symbols", "active_coins"}
+RESTART_REQUIRED = {"symbols", "fee_venue", "auto_symbols", "max_symbols", "active_coins",
+                    "scalp_coins"}
 
 
 def _coerce(name: str, value: Any) -> Any:
@@ -142,17 +159,36 @@ class RuntimeSettings:
             migrated = True
         if self._migrate_focus(stored):
             migrated = True
+        #: True once, on the first start after the switch to the scalp mode:
+        #: the engine then starts a fresh paper account (see Engine)
+        self.scalp_switch = self._migrate_scalp(stored)
         for k, v in stored.items():
             if k in SCHEMA:
                 try:
                     self._values[k] = _coerce(k, v)
                 except (ValueError, TypeError):
                     log.warning("ignoring invalid stored setting %s=%r", k, v)
-        if migrated:
+        if migrated or self.scalp_switch:
             self._save()
+        if migrated:
             self._db.audit("system",
                            "Aktualizácia 1.2: burza prepnutá na Kraken Futures "
                            "(Binance od 1. 7. 2026 nefunguje pre účty z EÚ); SHORT povolený.")
+        if self.scalp_switch:
+            self._db.audit("system", "Nový plán: rýchle obchody (paper pokus). Staré stratégie "
+                           "a AI trader vypnuté, páka 5x, denný limit straty 5 %.")
+
+    @staticmethod
+    def _migrate_scalp(stored: dict) -> bool:
+        """New plan (scalp mode): the old strategies' entries are switched
+        off, leverage 5x, daily loss limit 5 %. Once, for stores from before
+        the scalp mode; a fresh install starts with these defaults anyway."""
+        if not stored or "scalp_enabled" in stored:
+            return False
+        stored.update({"leverage": 5.0, "daily_max_loss_pct": 5.0, "ai_trader_enabled": False,
+                       "explore_enabled": False, "active_enabled": False,
+                       "legacy_enabled": False, "scalp_enabled": True})
+        return True
 
     @staticmethod
     def _migrate_v12(stored: dict) -> bool:

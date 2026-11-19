@@ -208,7 +208,7 @@ FLIP_EXIT_NAMES = set(TREND_NAMES)
 #: trial accounts: strategy name -> sleeve. Each sleeve has its own caps,
 #: its own result (net of fees) and its own automatic kill switch.
 SLEEVE_OF = {"pullback_short_4h": "explore", "ai_trader": "ai", "psar_active_4h": "active",
-             **{n: "active" for n in TREND_NAMES}}
+             "scalp": "scalp", **{n: "active" for n in TREND_NAMES}}
 EXPLORATION_NAMES = set(SLEEVE_OF)
 
 

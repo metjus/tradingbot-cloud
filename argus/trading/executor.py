@@ -59,6 +59,11 @@ class ExecutionService:
         #: symbol -> consecutive quiet 4h bars (volume-fade exit); set by engine
         self.vol_fade_provider = None
         self.state = "running"
+        #: scalp mode: time stop (seconds) for its positions
+        self.scalp_hold_s = 3600.0
+        #: stop trading at this capital (0 = off); set by the engine
+        self.target_capital = 0.0
+        self.target_reached = False
         self._pending_entry: dict[str, dict] = {}   # client_order_id -> decision detail
         self._closing: set[str] = set()             # close requested, awaiting fill
         self._processed_commands: set[str] = set()
@@ -113,6 +118,7 @@ class ExecutionService:
                 self.broker.on_candle(bar)
             self.portfolio.mark_price(bar.symbol, bar.close)
             self._manage_stops(bar.symbol, bar.close)
+            self.check_target()
             if self.state == "pausing" and not self.portfolio.positions:
                 self._set_state("paused", "all positions closed after PAUSE")
 
@@ -128,6 +134,7 @@ class ExecutionService:
                     self.broker.on_tick(tick.symbol, tick.price, tick.ts)
                 self.portfolio.mark_price(tick.symbol, tick.price)
                 self._manage_stops(tick.symbol, tick.price)
+                self.check_target()
             except Exception as exc:  # never let one bad tick kill the loop
                 log.warning("tick handling failed: %s", exc)
 
@@ -137,6 +144,13 @@ class ExecutionService:
         from ..strategy.trend_portfolio import FLIP_STATE
         for pos in list(self.portfolio.positions.values()):
             if pos.symbol != symbol or pos.client_order_id in self._closing:
+                continue
+            if pos.strategy == "scalp":
+                # fixed small TP / SL; only the time stop on top
+                age = datetime.now(timezone.utc).timestamp() - pos.opened_at.timestamp()
+                if age >= self.scalp_hold_s:
+                    self._closing.add(pos.client_order_id)
+                    self.broker.close_position(pos.client_order_id, "time_stop")
                 continue
             if pos.strategy in FLIP_EXIT_NAMES:
                 # exits only when its system points the other way (+ safety stop)
@@ -197,7 +211,7 @@ class ExecutionService:
 
     # --- entries ------------------------------------------------------------
     def _maybe_enter(self, decision: dict) -> None:
-        if self.state != "running" or self.risk.halted:
+        if self.state != "running" or self.risk.halted or self.target_reached:
             return
         best = decision.get("best") or {}
         sig = best.get("signal") or {}
@@ -226,6 +240,8 @@ class ExecutionService:
                     self.broker.close_position(p.client_order_id, "signal_flip")
         if mine():
             return
+        if sleeve == "scalp" and self.has_resting(symbol, sig.get("strategy")):
+            return
         # NOTE live: an exchange nets positions per contract, so separate
         # accounts on the same coin need sub-accounts before going live
         coid = new_client_order_id()
@@ -248,7 +264,7 @@ class ExecutionService:
             leverage=risk.get("leverage", 1.0),
             # the AI's level IS the trade (limit); the trend portfolio enters at
             # market as researched (a resting limit misses the best flips)
-            entry={"ai": "limit", "active": "market"}.get(sig.get("sleeve") or "",
+            entry={"ai": "limit", "active": "market", "scalp": "limit"}.get(sig.get("sleeve") or "",
                                                           self.entry_order),
             limit_price=float(sig.get("entry") or 0.0),
             expire_s=float(tf_s)))
@@ -272,6 +288,72 @@ class ExecutionService:
             if sig.get("symbol") == symbol and detail.get("strategy") == strategy:
                 return True
         return False
+
+    def sleeve_usage(self, sleeve: str) -> tuple[int, float]:
+        """(open positions + resting entries, margin they block) of a sleeve."""
+        from ..strategy.futures import SLEEVE_OF
+        n, margin = 0, 0.0
+        for p in self.portfolio.positions.values():
+            if SLEEVE_OF.get(p.strategy) == sleeve:
+                n += 1
+                margin += p.invested
+        for detail in self._pending_entry.values():
+            if SLEEVE_OF.get(detail.get("strategy", "")) == sleeve:
+                n += 1
+                margin += float(detail.get("margin") or 0.0)
+        return n, margin
+
+    def cancel_all_resting(self) -> int:
+        n = 0
+        for coid in list(self._pending_entry):
+            if hasattr(self.broker, "cancel_pending") and self.broker.cancel_pending(coid):
+                n += 1
+            self._pending_entry.pop(coid, None)
+        return n
+
+    def close_all(self, reason: str) -> tuple[int, int]:
+        """Close every open position at market and cancel resting entries."""
+        self.cancel_all_resting()
+        closed = failed = 0
+        for pos in list(self.portfolio.positions.values()):
+            if pos.client_order_id in self._closing:
+                continue
+            self._closing.add(pos.client_order_id)
+            if self.broker.close_position(pos.client_order_id, reason):
+                closed += 1
+            else:
+                self._closing.discard(pos.client_order_id)
+                failed += 1
+        return closed, failed
+
+    def live_equity(self) -> float:
+        """Capital as if every open position were closed now at market:
+        realized capital + open P/L - the taker fee and slippage of closing."""
+        fee = getattr(self.broker, "fee_pct", 0.05) + getattr(self.broker, "slippage_pct", 0.0)
+        eq = self.portfolio.equity
+        for p in self.portfolio.positions.values():
+            u = p.unrealized_pl
+            if u is None:
+                continue
+            eq += u - (p.last_price or p.entry_price) * p.quantity * fee / 100.0
+        return eq
+
+    def check_target(self) -> bool:
+        """Target capital reached -> close everything, no new entries until
+        the target is raised or switched off."""
+        if self.target_capital <= 0 or self.target_reached:
+            return False
+        eq = self.live_equity()
+        if eq < self.target_capital:
+            return False
+        self.target_reached = True
+        closed, failed = self.close_all("target_reached")
+        msg = (f"Cieľový kapitál {self.target_capital:.2f} € dosiahnutý (kapitál "
+               f"{eq:.2f} €): zatvorené pozície {closed}, nové obchody sa neotvárajú")
+        self._db.audit("trade", msg, "warning")
+        self._bus.publish("system_alert", {"category": "target_reached", "message": msg})
+        self._bus.publish(STATE_EVENT, {"state": self.state, "why": msg})
+        return True
 
     def _on_entry_cancel(self, client_order_id: str, reason: str) -> None:
         detail = self._pending_entry.pop(client_order_id, None)

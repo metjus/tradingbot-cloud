@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     event_blackout_after_min: int = 15
 
     # --- decision & risk (hard limits enforced by RiskSupervisor) ---
-    paper_equity: float = 10_000.0
+    paper_equity: float = 300.0          # simulated starting capital
     enter_threshold: float = 70.0   # decision score needed to enter
     risk_per_trade_pct: float = 0.5
     daily_max_loss_pct: float = 2.0

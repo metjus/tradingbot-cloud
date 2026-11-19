@@ -84,6 +84,9 @@ class DecisionEngine:
         self.active_vol_k = 1.0
         #: coins allowed to open trades (top by 30-day volume); None = all
         self.allowed_symbols: set[str] | None = None
+        #: the strategies' entries (4h, trend portfolio, trial). Off in the
+        #: scalp mode: regime, features and the watch list are still computed
+        self.legacy_enabled = True
 
     # --- scoring ----------------------------------------------------------
     def score(self, sig: Signal, ctx: MarketContext) -> ScoredSignal:
@@ -164,6 +167,9 @@ class DecisionEngine:
     def evaluate(self, ctx: MarketContext, account: AccountState) -> DecisionResult:
         ctx.regime = detect_regime(ctx.f(M15), ctx.f(H1))
         res = DecisionResult(symbol=ctx.symbol, regime=ctx.regime, verdict="no_signal")
+        if not self.legacy_enabled:
+            res.notes.append("staré stratégie vypnuté - obchodujú rýchle obchody")
+            return res
         outside = self.allowed_symbols is not None and ctx.symbol not in self.allowed_symbols
 
         for strat in self.strategies:

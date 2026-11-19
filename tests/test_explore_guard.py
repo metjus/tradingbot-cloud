@@ -63,6 +63,7 @@ def test_validated_trades_do_not_count(tmp_path):
 
 def test_ai_account_has_its_own_kill_switch(tmp_path):
     e = _engine(tmp_path)
+    e.runtime.update({"ai_trader_enabled": True})          # off by default since scalp mode
     _add_trades(e, [1.0, -1.5] * 10, strategy="ai_trader")    # PF 0.67
     e._check_explore()
     assert e.runtime["ai_trader_enabled"] is False

@@ -45,7 +45,8 @@ async def test_full_engine_boot_api_and_pipeline(settings):
     engine = Engine(settings)
     # the synthetic 1m feed exercises the intraday (5m) pipeline; futures
     # strategies need weeks of 4h bars and have dedicated tests
-    engine.runtime.update({"fee_venue": "binance", "allow_short": False})
+    engine.runtime.update({"fee_venue": "binance", "allow_short": False,
+                           "legacy_enabled": True})        # the old strategy pipeline
     engine.decision_engine.strategies = __import__(
         "argus.strategy.library", fromlist=["ALL_STRATEGIES"]).ALL_STRATEGIES
     run_task = asyncio.create_task(engine.run())

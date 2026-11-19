@@ -506,8 +506,8 @@ def test_capital_is_set_from_the_ui_and_survives_restart(tmp_path):
         "signal": {"symbol": "BTC/USD", "direction": "LONG", "entry": 100.0,
                    "stop_loss": 99.0, "take_profit": 103.0, "strategy": "m", "reasons": []}},
         "risk": {"approved": True, "quantity": 1.0, "risk_pct": 0.5}})
-    e1.broker.on_tick("BTC/USD", 98.9)                    # a small loss: under 10 000
-    lost = e1.portfolio.equity - 10_000.0
+    e1.broker.on_tick("BTC/USD", 98.9)                    # a small loss
+    lost = e1.portfolio.equity - e1.portfolio.start_equity
     assert lost < 0
     app = create_app(e1.db, e1.bus, e1.health, e1.info(), executor=e1.executor,
                      portfolio=e1.portfolio, decision_engine=e1.decision_engine,
